@@ -1,0 +1,2329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LED Tape System Visualizer</title>
+<!--
+  LED Tape System Visualizer — single-file, no build step.
+  Open this file in a desktop browser. The only external dependency is Three.js
+  (pinned r128 UMD build from cdnjs). All geometry, textures and fonts are generated
+  or use system fonts.
+
+  Code map (search for the "=====" banners):
+    0. BRAND & GLOBAL CONSTANTS     <- change colors / units / scale here
+    1. SYSTEM DATA                  <- layers, profiles, zones, camera presets
+    2. UTILITIES
+    3. RENDERER, SCENE, CAMERAS, LIGHTS
+    4. ORBIT CONTROLS (built in)
+    5. MATERIALS
+    6. LAYER REGISTRY & VISIBILITY
+    7. GEOMETRY BUILDERS — ARCHITECTURE (one function per element)
+    8. GEOMETRY BUILDERS — LED COMPONENTS (profile shapes, assembly)
+    9. GEOMETRY BUILDERS — POWER, CONTROLS, WIRING
+   10. SYSTEM BUILD (zones -> geometry)
+   11. LABELS, CALLOUTS & DIMENSIONS (2D overlay, included in exports)
+   12. LIGHTING STATE (glow, brightness, CCT, dim)
+   13. EXPLODED VIEW & CROSS-SECTION
+   14. FLAT SYSTEM DIAGRAM (schematic)
+   15. CAMERA PRESETS & SAVED VIEWS
+   16. UI (side panel)
+   17. EXPORT
+   18. LAYOUT, RESIZE & RENDER LOOP
+-->
+<style>
+  :root {
+    --panel-w: 340px;
+    --ui-font: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --brand: #1F4E79;
+    --brand-ink: #ffffff;
+    --accent: #F2A900;
+    --ui-bg: #ffffff;
+    --ui-bg-2: #f4f5f7;
+    --ui-border: #e1e4e8;
+    --ui-text: #1d232b;
+    --ui-muted: #6a7380;
+    --letterbox: #c9ced5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body { font-family: var(--ui-font); color: var(--ui-text); background: var(--letterbox); font-size: 13px; }
+  #app { display: flex; width: 100%; height: 100%; }
+
+  /* ---------- viewport ---------- */
+  #viewport { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; background: var(--letterbox); }
+  #stage { position: absolute; left: 0; top: 0; overflow: hidden; }
+  #stage canvas { position: absolute; left: 0; top: 0; display: block; }
+  #gl { cursor: grab; outline: none; }
+  #gl.dragging { cursor: grabbing; }
+  #overlay { pointer-events: none; }
+  #stage.checker {
+    background-color: #ffffff;
+    background-image:
+      linear-gradient(45deg, #e4e7eb 25%, transparent 25%),
+      linear-gradient(-45deg, #e4e7eb 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #e4e7eb 75%),
+      linear-gradient(-45deg, transparent 75%, #e4e7eb 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  }
+  .vp-chip {
+    position: absolute; background: rgba(255,255,255,.92); border: 1px solid var(--ui-border);
+    border-radius: 8px; padding: 6px 10px; font-size: 12px; color: var(--ui-text);
+    box-shadow: 0 2px 8px rgba(20,30,40,.08); user-select: none;
+  }
+  #viewBadge { left: 12px; top: 12px; font-weight: 600; }
+  #viewBadge small { font-weight: 400; color: var(--ui-muted); margin-left: 6px; }
+  #hint { left: 12px; bottom: 12px; color: var(--ui-muted); }
+  #panelTab {
+    position: absolute; right: 12px; top: 12px; width: 34px; height: 34px; padding: 0;
+    border-radius: 8px; border: 1px solid var(--ui-border); background: rgba(255,255,255,.95);
+    cursor: pointer; font-size: 16px; color: var(--ui-text); box-shadow: 0 2px 8px rgba(20,30,40,.08);
+  }
+  #panelTab:hover { background: var(--ui-bg-2); }
+  #toast {
+    position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%) translateY(20px);
+    background: #1d232b; color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 12.5px;
+    opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; white-space: nowrap;
+  }
+  #toast.show { opacity: .95; transform: translateX(-50%) translateY(0); }
+  #captureHint {
+    position: absolute; right: 12px; top: 12px; background: rgba(29,35,43,.85); color: #fff;
+    padding: 6px 10px; border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity .6s;
+    pointer-events: none;
+  }
+  #captureHint.show { opacity: 1; }
+  body.capture .ui { display: none !important; }
+
+  /* ---------- side panel ---------- */
+  #panel {
+    width: var(--panel-w); flex: 0 0 var(--panel-w); background: var(--ui-bg);
+    border-left: 1px solid var(--ui-border); display: flex; flex-direction: column; min-height: 0;
+  }
+  #app.collapsed #panel { display: none; }
+  #panelHead { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--ui-border); }
+  #brandMark { width: 28px; height: 28px; border-radius: 7px; background: var(--brand); position: relative; flex: none; }
+  #brandMark::after { content: ""; position: absolute; left: 6px; right: 6px; top: 12px; height: 4px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  #panelHead h1 { font-size: 14px; margin: 0; line-height: 1.2; }
+  #panelHead p { margin: 1px 0 0; font-size: 11.5px; color: var(--ui-muted); }
+  #panelBody { flex: 1 1 auto; overflow-y: auto; padding: 4px 0 12px; }
+  #panelFoot { border-top: 1px solid var(--ui-border); padding: 10px 14px 12px; background: var(--ui-bg-2); }
+
+  details.sec { border-bottom: 1px solid var(--ui-border); }
+  details.sec > summary {
+    list-style: none; cursor: pointer; padding: 10px 14px; font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--ui-muted); display: flex; align-items: center;
+  }
+  details.sec > summary::-webkit-details-marker { display: none; }
+  details.sec > summary::after { content: "▸"; margin-left: auto; transition: transform .15s; }
+  details.sec[open] > summary::after { transform: rotate(90deg); }
+  .sec-body { padding: 0 14px 12px; }
+  .sub { font-size: 11px; font-weight: 600; color: var(--ui-muted); margin: 10px 0 6px; text-transform: uppercase; letter-spacing: .05em; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .row > .grow { flex: 1 1 auto; }
+  .row label { flex: 1 1 auto; }
+  .val { min-width: 42px; text-align: right; color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+  input[type=range] { flex: 1 1 auto; accent-color: var(--brand); min-width: 60px; }
+  input[type=checkbox] { accent-color: var(--brand); margin: 0; width: 15px; height: 15px; }
+  select, input[type=text] {
+    font: inherit; padding: 5px 7px; border: 1px solid var(--ui-border); border-radius: 6px; background: #fff; color: var(--ui-text); min-width: 0;
+  }
+  select { flex: 1 1 auto; }
+  .btn {
+    font: inherit; font-size: 12px; padding: 6px 9px; border-radius: 6px; border: 1px solid var(--ui-border);
+    background: #fff; color: var(--ui-text); cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { background: var(--ui-bg-2); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.mini { font-size: 11px; padding: 3px 7px; }
+  .btn.active { border-color: var(--brand); color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .seg { display: flex; border: 1px solid var(--ui-border); border-radius: 7px; overflow: hidden; }
+  .seg button { flex: 1 1 0; font: inherit; font-size: 12px; padding: 6px 4px; border: 0; background: #fff; cursor: pointer; color: var(--ui-text); }
+  .seg button + button { border-left: 1px solid var(--ui-border); }
+  .seg button.on { background: var(--brand); color: var(--brand-ink); font-weight: 600; }
+  .grp { border: 1px solid var(--ui-border); border-radius: 8px; margin: 8px 0; }
+  .grp-head { display: flex; align-items: center; gap: 4px; padding: 6px 8px; background: var(--ui-bg-2); border-radius: 8px 8px 0 0; }
+  .grp-head strong { flex: 1 1 auto; font-size: 12.5px; }
+  .grp-items { padding: 4px 8px 6px; }
+  .chk { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+  .chk span { flex: 1 1 auto; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .zone-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+  .zone-row label { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; cursor: pointer; }
+  .slot { display: flex; gap: 5px; align-items: center; margin: 4px 0; }
+  .slot .num { width: 16px; color: var(--ui-muted); font-size: 11px; text-align: center; }
+  .slot input { flex: 1 1 auto; width: 0; font-size: 12px; padding: 4px 6px; }
+  .slot.filled .num { color: var(--brand); font-weight: 700; }
+  .bgs { display: flex; gap: 6px; }
+  .bgs button {
+    flex: 1 1 0; height: 34px; border-radius: 7px; border: 1px solid var(--ui-border); cursor: pointer; font: inherit; font-size: 11px;
+  }
+  .bgs button.on { box-shadow: 0 0 0 2px var(--brand); }
+  .note { font-size: 11px; color: var(--ui-muted); margin: 6px 0 0; line-height: 1.35; }
+  .kbd { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10.5px; border: 1px solid var(--ui-border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fff; }
+  #exportBtn { width: 100%; padding: 9px; font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <main id="viewport">
+    <div id="stage">
+      <canvas id="gl" tabindex="0"></canvas>
+      <canvas id="overlay"></canvas>
+    </div>
+    <div id="viewBadge" class="vp-chip ui">Perspective</div>
+    <div id="hint" class="vp-chip ui">Drag: orbit · Right-drag / Shift-drag: pan · Wheel: zoom · Double-click: focus point</div>
+    <button id="panelTab" class="ui" title="Show / hide panel (P)">⟩</button>
+    <div id="toast"></div>
+    <div id="captureHint">Capture mode — press H or Esc to show the UI</div>
+  </main>
+  <aside id="panel" class="ui">
+    <div id="panelHead">
+      <div id="brandMark"></div>
+      <div><h1 id="appTitle">LED Tape System Visualizer</h1><p id="appSub">Brand</p></div>
+    </div>
+    <div id="panelBody"></div>
+    <div id="panelFoot"></div>
+  </aside>
+</div>
+
+<!-- Three.js r128 (pinned, UMD). Falls back to jsDelivr only if cdnjs is unreachable. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+  if (!window.THREE) document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"><\/script>');
+</script>
+<script>
+'use strict';
+
+/* =====================================================================
+   0. BRAND & GLOBAL CONSTANTS — change these to match your brand
+   ===================================================================== */
+const BRAND = {
+  name:     'Your Brand',                 // shown in the panel header, diagram title and file names
+  product:  'Residential LED Tape Lighting',
+  primary:  '#1F4E79',                    // UI buttons, section-plane helper, diagram accents
+  primaryInk: '#FFFFFF',                  // text on primary-colored buttons
+  accent:   '#F2A900',                    // highlights (breaker in diagram, brand mark)
+  font:     '"Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif', // UI + labels (system fonts only)
+};
+
+// One color per zone (order matches ZONES below). Tints wiring, labels and highlights.
+const ZONE_COLORS = ['#E8772E', '#2F7CF6', '#1FA463', '#8B4FE8', '#00A2B8'];
+
+const COLORS = {
+  arch:        '#e2e5e9',  // walls, cabinets, shelving (neutral light gray)
+  archAlt:     '#d9dde2',  // tile / accent surfaces
+  floor:       '#d6dade',
+  archEdge:    '#9ea6b0',  // architectural outline lines
+  aluminum:    '#cfd4da',
+  clip:        '#8f979f',
+  endCap:      '#e8eaed',
+  gasket:      '#3a4048',
+  diffuser:    '#f7f8fa',
+  pcb:         '#f3eee2',
+  chip:        '#f2d470',  // LED phosphor when unlit
+  connector:   '#eef1f4',
+  psuBody:     '#5a616c',
+  plate:       '#f7f7f4',  // dimmer wall plate
+  panel:       '#c3c9d0',  // breaker panel
+  lineVoltage: '#2a2e35',  // line-voltage (120V) feed wire
+  sectionCut:  '#8d97a3',  // cut face of aluminum in cross-section
+};
+
+// Background presets (null = transparent)
+const BACKGROUNDS = {
+  white:       { label: 'White',       color: '#ffffff', theme: 'light' },
+  light:       { label: 'Light gray',  color: '#eceef1', theme: 'light' },
+  dark:        { label: 'Dark',        color: '#1b1f25', theme: 'dark'  },
+  transparent: { label: 'Transparent', color: null,      theme: 'light' },
+};
+
+// Color temperature tints for the tape and its glow
+const CCT_COLORS = { 2700: '#ffb066', 3000: '#ffc184', 3500: '#ffd3a6', 4000: '#ffe3c4' };
+
+const UNITS = 'imperial';        // 'imperial' (ft/in) or 'metric' (m/mm) for lengths in labels
+const PROFILE_SCALE = 1.5;       // exaggerates channel cross-sections for legibility at room scale (1.0 = true size)
+const WIRE_RADIUS = { lv: 0.0045, line: 0.006 }; // wire tube radii in meters (stylized, thicker than real)
+const EXPLODE_STEP = 0.035;      // meters between parts at 100% exploded
+const DEFAULT_EXPORT_SCALE = 2;
+
+/* =====================================================================
+   1. SYSTEM DATA — edit / extend here
+   ---------------------------------------------------------------------
+   LAYERS: every toggleable thing in the scene. Each layer belongs to a
+   group (the "Show all / Hide all / Solo" buttons work per group).
+   Architecture layers name their builder function. Lighting, wiring,
+   power and control geometry is generated from ZONES below and tagged
+   with these layer ids.
+   ===================================================================== */
+const LAYER_GROUPS = [
+  { id: 'lighting',     label: 'Lighting' },
+  { id: 'wiring',       label: 'Wiring' },
+  { id: 'power',        label: 'Power' },
+  { id: 'controls',     label: 'Controls' },
+  { id: 'architecture', label: 'Architecture' },
+  { id: 'labels',       label: 'Labels' },
+];
+
+const LAYERS = [
+  // lighting
+  { id: 'tape',           group: 'lighting',     label: 'LED tape',                       on: true },
+  { id: 'channels',       group: 'lighting',     label: 'Extrusions / channels',          on: true },
+  { id: 'diffusers',      group: 'lighting',     label: 'Diffusers',                      on: true },
+  { id: 'hardware',       group: 'lighting',     label: 'End caps, clips & connectors',   on: true },
+  { id: 'highlight',      group: 'lighting',     label: 'Zone highlight on channels',     on: false },
+  // wiring
+  { id: 'wire-lv',        group: 'wiring',       label: 'Low-voltage wiring (24V DC)',    on: true },
+  { id: 'wire-line',      group: 'wiring',       label: 'Line-voltage wiring (120V AC)',  on: true },
+  // power
+  { id: 'psu',            group: 'power',        label: 'Power supplies',                 on: true },
+  { id: 'panel',          group: 'power',        label: 'Breaker panel',                  on: true },
+  // controls
+  { id: 'dimmers',        group: 'controls',     label: 'Wall dimmers',                   on: true },
+  // architecture (context)
+  { id: 'arch-floor',     group: 'architecture', label: 'Floor',                          on: true,  build: buildFloor },
+  { id: 'arch-walls',     group: 'architecture', label: 'Walls',                          on: true,  build: buildWalls },
+  { id: 'arch-ceiling',   group: 'architecture', label: 'Ceiling',                        on: true,  build: buildCeiling },
+  { id: 'arch-ledge',     group: 'architecture', label: 'Cove ledge',                     on: true,  build: buildCoveLedge },
+  { id: 'arch-base',      group: 'architecture', label: 'Base cabinets & counter',        on: true,  build: buildBaseCabinets },
+  { id: 'arch-upper',     group: 'architecture', label: 'Upper cabinets',                 on: true,  build: buildUpperCabinets },
+  { id: 'arch-bookcase',  group: 'architecture', label: 'Bookcase',                       on: true,  build: buildBookcase },
+  { id: 'arch-shower',    group: 'architecture', label: 'Shower wall & niche',            on: true,  build: buildShower },
+  { id: 'arch-closet',    group: 'architecture', label: 'Closet (behind wall)',           on: true,  build: buildCloset },
+  { id: 'arch-framing',   group: 'architecture', label: 'Framing (studs & joists)',       on: false, build: buildFraming },
+  // labels (drawn on a 2D overlay that is composited into exports)
+  { id: 'labels-callouts', group: 'labels',      label: 'Component callouts',             on: true },
+  { id: 'labels-dims',     group: 'labels',      label: 'Dimensions',                     on: false },
+  { id: 'labels-wires',    group: 'labels',      label: 'Wire labels (gauge & length)',   on: false },
+  { id: 'labels-room',     group: 'labels',      label: 'Room / location labels',         on: false },
+];
+
+/* Channel profiles. Dimensions are nominal millimeters (shown in labels);
+   geometry is multiplied by PROFILE_SCALE. */
+const PROFILES = {
+  deep:    { name: 'Deep cove channel',        W: 17.4, H: 12.0, t: 1.2, diffuser: 'dome', dome: 2.6, tape: 8 },
+  surface: { name: 'Surface channel',          W: 17.4, H: 7.0,  t: 1.2, diffuser: 'flat', tape: 8 },
+  lowpro:  { name: 'Low-profile channel',      W: 12.5, H: 5.5,  t: 1.0, diffuser: 'flat', tape: 8 },
+  slim:    { name: 'Slim edge channel',        W: 12.5, H: 8.0,  t: 1.0, diffuser: 'flat', tape: 8 },
+  sealed:  { name: 'Sealed IP67 channel',      W: 17.4, H: 7.0,  t: 1.4, diffuser: 'dome', dome: 4.0, tape: 8, sealed: true },
+};
+
+/* Dimmer bank location (left wall, facing +X) — one gang per zone. */
+const DIMMER_BANK = { x: 0, y: 1.22, zc: 1.535, pitch: 0.046 };
+/* Breaker panel (inside the closet, on its back wall, facing the room) */
+const BREAKER = {
+  box: [3.40, 3.76, 1.00, 1.70, -1.10, -1.02],  // x0,x1,y0,y1,z0,z1
+  label: 'Breaker panel', sub: '120V AC · 15A lighting circuit', gauge: '14/2 NM-B',
+  feedRoute: [[3.58, 1.70, -1.06], [3.58, 2.90, -1.06], [3.58, 2.90, 1.70], [-0.045, 2.90, 1.70], [-0.045, 1.29, 1.70]],
+};
+
+/* ZONES — one entry per lighting zone. Coordinates are meters:
+   X along the back wall (0 = left wall), Y up (0 = floor), Z out of the back wall toward the viewer.
+   runs[].segments[]: a = start point ON the mounting surface, b = end point, aim = direction the light faces.
+   Consecutive segments in a run are joined with a jumper. feed: which end the power lead enters ('start' | 'end').
+   psu.pos is the point on the mounting surface; normal = which way the surface faces.
+   lineRoute: waypoints from the zone's dimmer to the supply input (the end points are added automatically).
+   lvRoutes: one waypoint list per run, from the supply output to the run's feed end (end points added automatically).
+   washes: soft light pools on nearby surfaces (o = corner, u = along the run, v = falloff direction, peak = brightest point 0..1). */
+const ZONES = [
+  {
+    id: 'cove', surface: 'Cove ledge (top face)', code: 'Z1', name: 'Cove', profile: 'deep', wPerFt: 4.4,
+    runs: [{ feed: 'start', segments: [
+      { name: 'Run A', a: [0.08, 2.40, 0.11], b: [2.30, 2.40, 0.11], aim: [0, 1, 0] },
+      { name: 'Run B', a: [2.36, 2.40, 0.11], b: [4.57, 2.40, 0.11], aim: [0, 1, 0] },
+    ] }],
+    psu: { pos: [1.0, 2.72, 0.60], normal: [0, 1, 0], flip: true, watts: '96W', volts: '24V DC', location: 'Attic (remote)' },
+    dimmer: { type: 'ELV dimmer' },
+    gauge: { lv: '18/2 AWG', line: '14/2 NM-B' },
+    lineRoute: [[-0.045, 2.80, 'DZ'], [1.30, 2.80, 'DZ'], [1.30, 2.80, 0.60], [1.30, 2.741, 0.60]],
+    lvRoutes: [[[0.25, 2.741, 0.60], [0.25, 2.741, -0.06], [0.25, 2.43, -0.06], [0.25, 2.43, 0.03], [0.03, 2.43, 0.03], [0.03, 2.43, 0.11]]],
+    washes: [
+      { o: [0, 2.698, 0.0], u: [4.65, 0, 0], v: [0, 0, 1.15], peak: 0.08, sigma: 0.55, k: 1.0, req: 'arch-ceiling' },
+      { o: [0, 2.40, 0.003], u: [4.65, 0, 0], v: [0, 0.298, 0], peak: 1.0, sigma: 0.9, k: 0.55, req: 'arch-walls' },
+    ],
+    callout: { seg: [0, 0], t: 0.3, offset: [0, -0.45, 0.9] },
+    psuCallout: [-0.1, 0.35, 0.35],
+    dims: [
+      { a: [0.08, 2.40, 0.22], b: [4.57, 2.40, 0.22], off: [0, -0.16, 0.12], label: 'Cove run' },
+      { a: [4.65, 2.40, 0.22], b: [4.65, 2.70, 0.22], off: [0.16, 0, 0], label: 'Ledge to ceiling' },
+    ],
+  },
+  {
+    id: 'undercab', surface: 'Upper cabinet underside', code: 'Z2', name: 'Under-cabinet', profile: 'surface', wPerFt: 3.0,
+    runs: [{ feed: 'end', segments: [
+      { name: 'Run A', a: [0.04, 1.37, 0.27], b: [1.47, 1.37, 0.27], aim: [0, -1, 0] },
+      { name: 'Run B', a: [1.53, 1.37, 0.27], b: [2.96, 1.37, 0.27], aim: [0, -1, 0] },
+    ] }],
+    psu: { pos: [1.75, 0.55, 0.012], normal: [0, 0, 1], watts: '60W', volts: '24V DC', location: 'Sink base cabinet' },
+    dimmer: { type: 'ELV dimmer' },
+    gauge: { lv: '18/2 AWG', line: '14/2 NM-B' },
+    lineRoute: [[-0.045, 2.82, 'DZ'], [1.55, 2.82, 'DZ'], [1.55, 2.82, -0.06], [1.55, 0.55, -0.06], [1.55, 0.55, 0.033]],
+    lvRoutes: [[[1.98, 0.55, 0.033], [1.98, 0.55, -0.06], [2.92, 0.55, -0.06], [2.92, 1.355, -0.06], [2.92, 1.355, 0.02], [2.99, 1.355, 0.02], [2.99, 1.355, 0.27]]],
+    washes: [
+      { o: [0, 0.912, 0.0], u: [3.0, 0, 0], v: [0, 0, 0.635], peak: 0.42, sigma: 0.5, k: 1.0, req: 'arch-base' },
+      { o: [0, 0.91, 0.003], u: [3.0, 0, 0], v: [0, 0.46, 0], peak: 1.0, sigma: 0.75, k: 0.6, req: 'arch-walls' },
+    ],
+    callout: { seg: [0, 0], t: 0.35, offset: [0, -0.2, 1.0] },
+    psuCallout: [-0.55, -0.15, 0.95],
+    dims: [
+      { a: [0.04, 1.37, 0.33], b: [2.96, 1.37, 0.33], off: [0, 0.06, 0.18], label: 'Under-cabinet run' },
+      { a: [3.0, 0.91, 0.40], b: [3.0, 1.37, 0.40], off: [0.18, 0, 0], label: 'Counter to cabinet' },
+    ],
+  },
+  {
+    id: 'toekick', surface: 'Base cabinet underside', code: 'Z3', name: 'Toe-kick', profile: 'lowpro', wPerFt: 2.2,
+    runs: [{ feed: 'end', segments: [
+      { name: 'Run', a: [0.05, 0.10, 0.555], b: [2.95, 0.10, 0.555], aim: [0, -1, 0] },
+    ] }],
+    psu: { pos: [1.75, 0.27, 0.012], normal: [0, 0, 1], watts: '36W', volts: '24V DC', location: 'Sink base cabinet' },
+    dimmer: { type: 'ELV dimmer' },
+    gauge: { lv: '18/2 AWG', line: '14/2 NM-B' },
+    lineRoute: [[-0.045, 2.84, 'DZ'], [1.60, 2.84, 'DZ'], [1.60, 2.84, -0.075], [1.60, 0.27, -0.075], [1.60, 0.27, 0.033]],
+    lvRoutes: [[[2.02, 0.27, 0.033], [2.02, 0.125, 0.033], [2.02, 0.125, 0.50], [2.985, 0.125, 0.50], [2.985, 0.125, 0.555]]],
+    washes: [
+      { o: [0, 0.002, 0.505], u: [3.0, 0, 0], v: [0, 0, 0.8], peak: 0.04, sigma: 0.42, k: 1.0, req: 'arch-floor' },
+      { o: [0, 0.0, 0.507], u: [3.0, 0, 0], v: [0, 0.1, 0], peak: 1.0, sigma: 0.8, k: 0.6, req: 'arch-base' },
+    ],
+    callout: { seg: [0, 0], t: 0.22, offset: [0, 0.05, 1.05] },
+    psuCallout: [-0.45, -0.1, 1.05],
+    dims: [
+      { a: [3.0, 0.0, 0.62], b: [3.0, 0.10, 0.62], off: [0.16, 0, 0], label: 'Toe-kick height' },
+      { a: [0.05, 0.0, 0.62], b: [2.95, 0.0, 0.62], off: [0, 0, 0.22], label: 'Toe-kick run' },
+    ],
+  },
+  {
+    id: 'shelf', surface: 'Shelf underside, front edge', code: 'Z4', name: 'Shelving', profile: 'slim', wPerFt: 2.2,
+    runs: [0.48, 0.88, 1.28, 1.68, 2.08].map((y, i) => ({ feed: 'end', segments: [
+      { name: 'Shelf ' + (i + 1), a: [3.33, y, 0.31], b: [4.27, y, 0.31], aim: [0, -1, 0] },
+    ] })),
+    psu: { pos: [3.95, 1.05, -0.12], normal: [0, 0, -1], watts: '60W', volts: '24V DC', location: 'Closet (behind wall)' },
+    dimmer: { type: 'ELV dimmer' },
+    gauge: { lv: '18/2 AWG', line: '14/2 NM-B' },
+    lineRoute: [[-0.045, 2.86, 'DZ'], [3.70, 2.86, 'DZ'], [3.70, 2.86, -0.40], [3.70, 1.05, -0.40], [3.70, 1.05, -0.141]],
+    lvRoutes: [0.48, 0.88, 1.28, 1.68, 2.08].map(y => [
+      [4.18, 1.05, -0.141], [4.18, 1.05, -0.06], [4.255, 1.05, -0.06], [4.255, 1.05, 0.025],
+      [4.255, y - 0.014, 0.025], [4.255, y - 0.014, 0.31]]),
+    washes: [0.08, 0.505, 0.905, 1.305, 1.705].flatMap((top, i) => {
+      const under = [0.48, 0.88, 1.28, 1.68, 2.08][i];
+      return [
+        { o: [3.32, top + 0.002, 0.012], u: [0.96, 0, 0], v: [0, 0, 0.328], peak: 0.85, sigma: 0.55, k: 0.9, req: 'arch-bookcase' },
+        { o: [3.32, top, 0.012], u: [0.96, 0, 0], v: [0, under - top, 0], peak: 1.0, sigma: 0.85, k: 0.7, req: 'arch-bookcase' },
+      ];
+    }),
+    callout: { seg: [2, 0], t: 0.5, offset: [0.55, 0.15, 0.75] },
+    psuCallout: [-0.35, 0.5, 0.25],
+    dims: [
+      { a: [3.33, 0.88, 0.34], b: [4.27, 0.88, 0.34], off: [0, 0, 0.16], label: 'Shelf run' },
+      { a: [4.30, 0.905, 0.34], b: [4.30, 1.28, 0.34], off: [0.16, 0, 0], label: 'Shelf spacing' },
+    ],
+  },
+  {
+    id: 'niche', surface: 'Niche header (tile)', code: 'Z5', name: 'Shower niche', profile: 'sealed', wPerFt: 3.0,
+    runs: [{ feed: 'start', segments: [
+      { name: 'Run', a: [5.165, 1.70, -0.022], b: [5.535, 1.70, -0.022], aim: [0, -1, 0] },
+    ] }],
+    psu: { pos: [4.62, 1.25, -0.12], normal: [0, 0, -1], watts: '30W', volts: '24V DC', location: 'Closet (outside wet area)' },
+    dimmer: { type: 'ELV dimmer' },
+    gauge: { lv: '18/2 AWG (wet-rated)', line: '14/2 NM-B' },
+    lineRoute: [[-0.045, 2.88, 'DZ'], [4.40, 2.88, 'DZ'], [4.40, 2.88, -0.40], [4.40, 1.25, -0.40], [4.40, 1.25, -0.141]],
+    lvRoutes: [[[4.84, 1.25, -0.141], [4.84, 1.85, -0.141], [4.84, 1.85, -0.06], [5.13, 1.85, -0.06], [5.13, 1.725, -0.06], [5.13, 1.725, -0.022]]],
+    washes: [
+      { o: [5.15, 1.10, -0.097], u: [0.40, 0, 0], v: [0, 0.60, 0], peak: 1.0, sigma: 0.75, k: 0.9, req: 'arch-shower' },
+      { o: [5.15, 1.103, -0.10], u: [0.40, 0, 0], v: [0, 0, 0.108], peak: 0.75, sigma: 0.6, k: 0.9, req: 'arch-shower' },
+    ],
+    callout: { seg: [0, 0], t: 0.5, offset: [0.45, -0.35, 0.7] },
+    psuCallout: [0.35, 0.55, 0.3],
+    dims: [
+      { a: [5.15, 1.70, 0.01], b: [5.55, 1.70, 0.01], off: [0, 0.14, 0], label: 'Niche width' },
+      { a: [5.55, 1.10, 0.01], b: [5.55, 1.70, 0.01], off: [0.16, 0, 0], label: 'Niche height' },
+    ],
+  },
+];
+ZONES.forEach((z, i) => { z.color = ZONE_COLORS[i % ZONE_COLORS.length]; z.index = i; });
+
+/* Room / location labels (layer "labels-room") */
+const ROOM_LABELS = [
+  { text: 'Kitchen — base & upper cabinets', anchor: [0.6, 2.13, 0.2], offset: [0, 0.2, 0.5], requires: ['arch-upper'] },
+  { text: 'Bookcase', anchor: [3.8, 2.1, 0.17], offset: [0, 0.18, 0.4], requires: ['arch-bookcase'] },
+  { text: 'Shower wall & niche', anchor: [5.4, 2.25, 0.0], offset: [0.15, 0.2, 0.4], requires: ['arch-shower'] },
+  { text: 'Closet (behind wall)', anchor: [4.1, 2.2, -0.7], offset: [0.0, 0.3, 0.0], requires: ['arch-closet'] },
+  { text: 'Attic (above ceiling)', anchor: [2.2, 2.75, 1.6], offset: [0.0, 0.25, 0.0], requires: ['arch-ceiling'] },
+  { text: 'Cove ledge', anchor: [3.3, 2.43, 0.21], offset: [0.0, -0.25, 0.55], requires: ['arch-ledge'] },
+];
+
+/* Camera presets. theta = azimuth around Y (0 = looking from the front, +Z),
+   phi = polar angle from straight up. Ortho presets use zoom instead of radius. */
+const CAMERA_PRESETS = [
+  { id: 'persp',   label: 'Perspective',            view: { type: 'persp', target: [2.7, 1.15, 0.55], theta: 0.36, phi: 1.2, radius: 8.6, fov: 38 } },
+  { id: 'iso',     label: 'Isometric',              view: { type: 'ortho', target: [2.85, 1.2, 0.3], theta: Math.PI / 4, phi: 0.9553, zoom: 1.05 } },
+  { id: 'plan',    label: 'Top / Plan',             view: { type: 'ortho', target: [2.95, 1.2, 0.75], theta: 0, phi: 0.0002, zoom: 1.0 } },
+  { id: 'front',   label: 'Front elevation',        view: { type: 'ortho', target: [2.95, 1.42, 0], theta: 0, phi: Math.PI / 2, zoom: 1.25 } },
+  { id: 'side',    label: 'Side elevation',         view: { type: 'ortho', target: [0, 1.42, 1.2], theta: Math.PI / 2, phi: Math.PI / 2, zoom: 1.15 } },
+  { id: 'section', label: 'Cross-section close-up', dynamic: true },
+];
+const SAVED_SLOTS = 6;
+
+/* =====================================================================
+   2. UTILITIES
+   ===================================================================== */
+const $ = (sel, root = document) => root.querySelector(sel);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const v3 = (a) => Array.isArray(a) ? new THREE.Vector3(a[0], a[1], a[2]) : a.clone();
+const MM = PROFILE_SCALE / 1000;                 // nominal mm -> scene meters (with exaggeration)
+const resolve = (x) => (typeof x === 'function' ? x() : x);
+const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const smooth01 = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+
+function slug(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); }
+function timestamp() {
+  const d = new Date(), p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+function fmtLen(m) {
+  if (UNITS === 'metric') return m < 1 ? `${Math.round(m * 1000)} mm` : `${m.toFixed(2)} m`;
+  const totalIn = m / 0.0254;
+  let ft = Math.floor(totalIn / 12), inch = Math.round(totalIn - ft * 12);
+  if (inch === 12) { ft += 1; inch = 0; }
+  return ft > 0 ? `${ft}′ ${inch}″` : `${inch}″`;
+}
+function fmtApprox(m) {
+  return UNITS === 'metric' ? `≈ ${m.toFixed(1)} m` : `≈ ${Math.max(1, Math.round(m / 0.3048))} ft`;
+}
+function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+/** Soft falloff texture (white RGB, alpha = falloff). U = along the run (ends fade), V = falloff direction. */
+const _gradCache = {};
+function falloffTexture(peak = 0, sigma = 0.5, endFade = 0.07) {
+  const key = `${peak}|${sigma}|${endFade}`;
+  if (_gradCache[key]) return _gradCache[key];
+  const W = 128, H = 128, c = makeCanvas(W, H), ctx = c.getContext('2d'), img = ctx.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const v = (y + 0.5) / H, dv = (v - peak) / sigma, f = Math.exp(-dv * dv * 2.4);
+    for (let x = 0; x < W; x++) {
+      const u = (x + 0.5) / W, e = smooth01(Math.min(u, 1 - u) / endFade);
+      const i = (y * W + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = Math.round(255 * f * e);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.flipY = false; t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return (_gradCache[key] = t);
+}
+
+/** Brushed-metal streak texture (streaks run along the extrusion length). */
+function brushedTexture() {
+  const c = makeCanvas(256, 256), ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 520; i++) {
+    const x = Math.random() * 256;
+    ctx.strokeStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,255,255'},${(Math.random() * 0.09).toFixed(3)})`;
+    ctx.lineWidth = 0.3 + Math.random() * 1.6;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 256); ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(160, 0.6);
+  return t;
+}
+
+/** A quad from corner o spanned by vectors u and v, with UVs (0..1) along u and v. */
+function quadGeometry(o, u, v) {
+  const p0 = v3(o), p1 = p0.clone().add(v3(u)), p3 = p0.clone().add(v3(v)), p2 = p1.clone().add(v3(v));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute([...p0.toArray(), ...p1.toArray(), ...p2.toArray(), ...p3.toArray()], 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+  g.setIndex([0, 1, 2, 0, 2, 3]);
+  g.computeVertexNormals();
+  return g;
+}
+function boxGeo(x0, x1, y0, y1, z0, z1) {
+  const g = new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0);
+  g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+  return g;
+}
+/** Polyline with rounded corners (for wire routing). */
+function roundedPath(points, bend) {
+  const pts = [];
+  points.forEach((p) => { if (!pts.length || pts[pts.length - 1].distanceTo(p) > 1e-5) pts.push(p.clone()); });
+  const path = new THREE.CurvePath();
+  if (pts.length < 2) { path.add(new THREE.LineCurve3(pts[0], pts[0].clone().add(new THREE.Vector3(0, 0.001, 0)))); return path; }
+  let prev = pts[0].clone();
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = pts[i - 1], p = pts[i], b = pts[i + 1];
+    const d1 = p.clone().sub(a), d2 = b.clone().sub(p);
+    const l1 = d1.length(), l2 = d2.length();
+    const r = Math.min(bend, l1 * 0.5, l2 * 0.5);
+    const p1 = p.clone().addScaledVector(d1.normalize(), -r);
+    const p2 = p.clone().addScaledVector(d2.normalize(), r);
+    if (prev.distanceTo(p1) > 1e-6) path.add(new THREE.LineCurve3(prev.clone(), p1.clone()));
+    if (r > 1e-6) path.add(new THREE.QuadraticBezierCurve3(p1.clone(), p.clone(), p2.clone()));
+    prev = p2;
+  }
+  path.add(new THREE.LineCurve3(prev.clone(), pts[pts.length - 1].clone()));
+  return path;
+}
+
+/* =====================================================================
+   3. RENDERER, SCENE, CAMERAS, LIGHTS
+   ===================================================================== */
+const glCanvas = $('#gl');
+const overlayCanvas = $('#overlay');
+const octx = overlayCanvas.getContext('2d');
+
+const renderer = new THREE.WebGLRenderer({
+  canvas: glCanvas, antialias: true, alpha: true, stencil: true,
+  preserveDrawingBuffer: true,           // required for reliable PNG capture
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.localClippingEnabled = true;    // per-material clipping planes (cross-section)
+
+const scene = new THREE.Scene();          // 3D model
+const world = new THREE.Group(); scene.add(world);
+const schemScene = new THREE.Scene();     // flat system diagram
+const schemRoot = new THREE.Group(); schemScene.add(schemRoot);
+
+const ORTHO_H = 6.0;                      // visible height (m) of ortho camera at zoom 1
+const SCHEM_H = 11.0;                     // visible height of diagram camera at zoom 1
+const perspCam = new THREE.PerspectiveCamera(38, 1, 0.005, 200);
+const orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 400);
+const schemCam = new THREE.OrthographicCamera(-1, 1, 1, -1, -50, 50);
+schemCam.position.set(0, 0, 10); schemCam.lookAt(0, 0, 0);
+
+function updateCameraAspect(aspect) {
+  perspCam.aspect = aspect; perspCam.updateProjectionMatrix();
+  orthoCam.left = -ORTHO_H * aspect / 2; orthoCam.right = ORTHO_H * aspect / 2;
+  orthoCam.top = ORTHO_H / 2; orthoCam.bottom = -ORTHO_H / 2; orthoCam.updateProjectionMatrix();
+  schemCam.left = -SCHEM_H * aspect / 2; schemCam.right = SCHEM_H * aspect / 2;
+  schemCam.top = SCHEM_H / 2; schemCam.bottom = -SCHEM_H / 2; schemCam.updateProjectionMatrix();
+}
+
+// Soft, presentation-style lighting
+const hemi = new THREE.HemisphereLight(0xffffff, 0xcfd3d9, 0.5);
+scene.add(hemi);
+const keyLight = new THREE.DirectionalLight(0xffffff, 0.5);
+keyLight.position.set(8.5, 11, 10);
+keyLight.target.position.set(2.6, 0.8, 0.8);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+Object.assign(keyLight.shadow.camera, { left: -6.5, right: 6.5, top: 6.5, bottom: -6.5, near: 1, far: 40 });
+keyLight.shadow.bias = -0.0004;
+keyLight.shadow.normalBias = 0.012;
+keyLight.shadow.radius = 4;
+scene.add(keyLight, keyLight.target);
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.16);
+fillLight.position.set(-5, 6, 9);
+scene.add(fillLight);
+scene.add(new THREE.AmbientLight(0xffffff, 0.1));
+
+/** Procedural studio environment for metal reflections (no external HDRI). */
+function buildEnvironment() {
+  const env = new THREE.Scene();
+  const box = new THREE.BoxGeometry(10, 10, 10);
+  const colors = [];
+  const pos = box.attributes.position;
+  for (let i = 0; i < pos.count; i++) { const y = pos.getY(i); const c = y > 0 ? 1.0 : 0.42; colors.push(c, c, c * 1.02); }
+  box.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  env.add(new THREE.Mesh(box, new THREE.MeshBasicMaterial({ side: THREE.BackSide, vertexColors: true })));
+  const panelMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 3, 3), side: THREE.DoubleSide });
+  [[0, 4.9, 0, Math.PI / 2, 6, 2], [4.9, 1.5, 0, 0, 2, 4], [-4.9, 2, 1, 0, 1.5, 3]].forEach(([x, y, z, rx, w, h]) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), panelMat);
+    m.position.set(x, y, z); m.rotation.x = rx; if (x !== 0) m.rotation.y = Math.PI / 2; env.add(m);
+  });
+  const pm = new THREE.PMREMGenerator(renderer);
+  const tex = pm.fromScene(env, 0.035).texture;
+  pm.dispose();
+  return tex;
+}
+const ENV_MAP = buildEnvironment();
+
+/* =====================================================================
+   4. ORBIT CONTROLS (built in — no external OrbitControls needed)
+   Left-drag rotate · right/middle/shift-drag pan · wheel zoom to cursor
+   ===================================================================== */
+class OrbitRig {
+  constructor(dom) {
+    this.dom = dom; this.camera = null;
+    this.target = new THREE.Vector3(); this.theta = 0; this.phi = 1.2; this.radius = 8;
+    this.enableRotate = true; this.minRadius = 0.03; this.maxRadius = 80;
+    this.onChange = null; this.onUser = null;
+    this._drag = null;
+    dom.addEventListener('pointerdown', (e) => this._down(e));
+    dom.addEventListener('pointermove', (e) => this._move(e));
+    dom.addEventListener('pointerup', (e) => this._up(e));
+    dom.addEventListener('pointercancel', (e) => this._up(e));
+    dom.addEventListener('wheel', (e) => this._wheel(e), { passive: false });
+    dom.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+  _down(e) {
+    if (!this.camera) return;
+    this.dom.setPointerCapture(e.pointerId);
+    const pan = e.button === 1 || e.button === 2 || e.shiftKey || e.ctrlKey || e.metaKey || !this.enableRotate;
+    this._drag = { mode: pan ? 'pan' : 'rotate', x: e.clientX, y: e.clientY, id: e.pointerId };
+    this.dom.classList.add('dragging');
+  }
+  _move(e) {
+    if (!this._drag || e.pointerId !== this._drag.id) return;
+    const dx = e.clientX - this._drag.x, dy = e.clientY - this._drag.y;
+    this._drag.x = e.clientX; this._drag.y = e.clientY;
+    if (this._drag.mode === 'rotate') {
+      this.theta -= dx * 0.0065;
+      this.phi = clamp(this.phi - dy * 0.0065, 0.0002, Math.PI - 0.0002);
+    } else this.pan(dx, dy);
+    this.update(); this.onUser && this.onUser();
+  }
+  _up(e) { if (this._drag && e.pointerId === this._drag.id) { this._drag = null; this.dom.classList.remove('dragging'); } }
+  worldPerPixel() {
+    const h = this.dom.clientHeight || 1, cam = this.camera;
+    if (cam.isPerspectiveCamera) return 2 * this.radius * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2) / h;
+    return (cam.top - cam.bottom) / cam.zoom / h;
+  }
+  pan(dx, dy) {
+    const k = this.worldPerPixel(), cam = this.camera;
+    cam.updateMatrix();
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrix, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(cam.matrix, 1);
+    this.target.addScaledVector(right, -dx * k).addScaledVector(up, dy * k);
+  }
+  _wheel(e) {
+    if (!this.camera) return;
+    e.preventDefault();
+    const f = Math.exp(clamp(e.deltaY, -120, 120) * 0.0016);
+    // zoom toward the point under the cursor
+    const rect = this.dom.getBoundingClientRect();
+    const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1, ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    const cam = this.camera;
+    const p = new THREE.Vector3(nx, ny, 0.5).unproject(cam);
+    let cursorWorld;
+    if (cam.isPerspectiveCamera) {
+      const dir = p.sub(cam.position).normalize();
+      const fwd = this.target.clone().sub(cam.position);
+      const dist = fwd.length(); fwd.normalize();
+      cursorWorld = cam.position.clone().addScaledVector(dir, dist / Math.max(0.05, dir.dot(fwd)));
+      const newR = clamp(this.radius * f, this.minRadius, this.maxRadius);
+      const ff = newR / this.radius;
+      this.target.copy(cursorWorld).addScaledVector(this.target.clone().sub(cursorWorld), ff);
+      this.radius = newR;
+    } else {
+      cursorWorld = p;
+      const newZoom = clamp(cam.zoom / f, 0.05, 600);
+      const ff = cam.zoom / newZoom;
+      const shift = this.target.clone().sub(cursorWorld).multiplyScalar(ff - 1);
+      // only shift within the view plane
+      const fwd = new THREE.Vector3(); cam.getWorldDirection(fwd);
+      shift.addScaledVector(fwd, -shift.dot(fwd));
+      this.target.add(shift);
+      cam.zoom = newZoom; cam.updateProjectionMatrix();
+    }
+    this.update(); this.onUser && this.onUser();
+  }
+  update() {
+    const cam = this.camera; if (!cam) return;
+    const s = Math.sin(this.phi);
+    cam.position.set(
+      this.target.x + this.radius * s * Math.sin(this.theta),
+      this.target.y + this.radius * Math.cos(this.phi),
+      this.target.z + this.radius * s * Math.cos(this.theta));
+    cam.up.set(0, 1, 0);
+    cam.lookAt(this.target);
+    cam.updateMatrixWorld();
+    this.onChange && this.onChange();
+  }
+}
+
+/* =====================================================================
+   5. MATERIALS
+   ===================================================================== */
+const BRUSHED = brushedTexture();
+const MAT = {
+  aluminum:  new THREE.MeshStandardMaterial({ color: COLORS.aluminum, metalness: 0.82, roughness: 0.34, map: BRUSHED, envMap: ENV_MAP, envMapIntensity: 1.0, side: THREE.DoubleSide }),
+  clip:      new THREE.MeshStandardMaterial({ color: COLORS.clip, metalness: 0.75, roughness: 0.38, envMap: ENV_MAP, side: THREE.DoubleSide }),
+  cap:       new THREE.MeshStandardMaterial({ color: COLORS.endCap, metalness: 0.0, roughness: 0.55 }),
+  gasket:    new THREE.MeshStandardMaterial({ color: COLORS.gasket, metalness: 0.0, roughness: 0.7 }),
+  diffuser:  new THREE.MeshStandardMaterial({ color: COLORS.diffuser, metalness: 0.0, roughness: 0.55, transparent: true, opacity: 0.8, emissive: 0x000000 }),
+  pcb:       new THREE.MeshStandardMaterial({ color: COLORS.pcb, metalness: 0.0, roughness: 0.6, emissive: 0x000000, side: THREE.DoubleSide }),
+  chip:      new THREE.MeshStandardMaterial({ color: COLORS.chip, metalness: 0.0, roughness: 0.35, emissive: 0x000000 }),
+  connector: new THREE.MeshStandardMaterial({ color: COLORS.connector, metalness: 0.0, roughness: 0.3, transparent: true, opacity: 0.92 }),
+  contact:   new THREE.MeshStandardMaterial({ color: '#c8a24a', metalness: 0.9, roughness: 0.3, envMap: ENV_MAP }),
+  psuBody:   new THREE.MeshStandardMaterial({ color: COLORS.psuBody, metalness: 0.55, roughness: 0.45, envMap: ENV_MAP, envMapIntensity: 0.6 }),
+  psuLabel:  new THREE.MeshStandardMaterial({ color: '#f4f5f6', roughness: 0.6 }),
+  brand:     new THREE.MeshStandardMaterial({ color: BRAND.primary, roughness: 0.5 }),
+  terminal:  new THREE.MeshStandardMaterial({ color: '#2b3038', roughness: 0.6 }),
+  plate:     new THREE.MeshStandardMaterial({ color: COLORS.plate, roughness: 0.38 }),
+  wallBox:   new THREE.MeshStandardMaterial({ color: '#7d858f', roughness: 0.6, metalness: 0.3 }),
+  panel:     new THREE.MeshStandardMaterial({ color: COLORS.panel, metalness: 0.35, roughness: 0.5, envMap: ENV_MAP, envMapIntensity: 0.5 }),
+  breaker:   new THREE.MeshStandardMaterial({ color: '#30353d', roughness: 0.6 }),
+  accent:    new THREE.MeshStandardMaterial({ color: BRAND.accent, roughness: 0.5 }),
+};
+
+// Architecture materials share one "x-ray" opacity slider (scale = relative opacity)
+const archMats = [];
+function makeArchMat(color, scale = 1, xray = true) {
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0, side: THREE.FrontSide,
+    polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+  m.userData.scale = scale; m.userData.xray = xray;
+  archMats.push(m);
+  return m;
+}
+const ARCH = {
+  floor:   makeArchMat(COLORS.floor, 1, false),
+  wall:    makeArchMat(COLORS.arch, 1),
+  ceiling: makeArchMat(COLORS.arch, 0.5),
+  cab:     makeArchMat(COLORS.arch, 1),
+  tile:    makeArchMat(COLORS.archAlt, 1),
+  closet:  makeArchMat(COLORS.arch, 0.55),
+  framing: makeArchMat('#d8c9ad', 0.9),
+};
+ARCH.ceiling.side = THREE.DoubleSide;
+const archEdgeMat = new THREE.LineBasicMaterial({ color: COLORS.archEdge, transparent: true, opacity: 0.8 });
+
+/* =====================================================================
+   6. LAYER REGISTRY & VISIBILITY
+   Every scene object that can be toggled is "tagged" with a layer id
+   (and optionally a zone id). Visibility = layer on AND zone on AND extras.
+   ===================================================================== */
+const registry = [];
+const layerOn = {};  LAYERS.forEach((l) => (layerOn[l.id] = l.on));
+const zoneOn = {};   ZONES.forEach((z) => (zoneOn[z.id] = true));
+
+/** Tag an object. opts: { zone, glow, requires:[layerIds], helper, when:()=>bool } */
+function tag(obj, layer, opts = {}) {
+  const entry = Object.assign({ obj, layer, zone: null }, opts);
+  registry.push(entry);
+  obj.userData.entry = entry;
+  return obj;
+}
+function untag(obj) {
+  const i = registry.findIndex((e) => e.obj === obj);
+  if (i >= 0) registry.splice(i, 1);
+}
+function entryVisible(e) {
+  if (e.layer && !layerOn[e.layer]) return false;
+  if (e.zone && !zoneOn[e.zone]) return false;
+  if (e.glow && !glowActive()) return false;
+  if (e.requires && !e.requires.every((id) => layerOn[id])) return false;
+  if (e.helper && state.hideUI) return false;
+  if (e.when && !e.when()) return false;
+  return true;
+}
+function applyVisibility() {
+  for (const e of registry) e.obj.visible = entryVisible(e);
+  requestRender();
+}
+
+/* Global app state (in memory only) */
+const state = {
+  mode: '3d',            // '3d' | 'schem'
+  glow: true, brightness: 1.0, dim: 1.0, cct: 3000,
+  xray: 0.7, edges: true,
+  bg: 'light', shadows: true, labelScale: 1.0,
+  selected: 0, explode: 0, section: false, cutPos: 0.5,
+  exportScale: DEFAULT_EXPORT_SCALE, exportTransparent: false, hideUI: false,
+  aspect: 'fill', fov: 38,
+  viewName: 'Perspective',
+  slots: new Array(SAVED_SLOTS).fill(null),
+};
+const glowActive = () => state.glow && state.dim > 0.001 && state.brightness > 0.001;
+
+/* =====================================================================
+   7. GEOMETRY BUILDERS — ARCHITECTURE (one function per element)
+   Room: X 0..6 m along the back wall, Z 0..ROOM_DEPTH toward the viewer,
+   floor at Y = 0, ceiling at Y = 2.70 m. Front and right walls are cut away.
+   ===================================================================== */
+function archMesh(geo, mat, layer, { cast = true, receive = true, edges = true, parent = world } = {}) {
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = cast; mesh.receiveShadow = receive;
+  if (edges) {
+    const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), archEdgeMat);
+    e.raycast = () => {};
+    e.userData.isEdge = true;
+    mesh.add(e);
+  }
+  parent.add(mesh);
+  tag(mesh, layer);
+  return mesh;
+}
+const archBox = (layer, mat, b, opts) => archMesh(boxGeo(...b), mat, layer, opts);
+
+/** Flat panel in the XY plane (extruded along Z) with an optional rectangular hole [x0,x1,y0,y1]. */
+function panelWithHole(x0, x1, y0, y1, z0, z1, hole) {
+  const s = new THREE.Shape();
+  s.moveTo(x0, y0); s.lineTo(x1, y0); s.lineTo(x1, y1); s.lineTo(x0, y1); s.closePath();
+  if (hole) {
+    const h = new THREE.Path();
+    h.moveTo(hole[0], hole[2]); h.lineTo(hole[0], hole[3]); h.lineTo(hole[1], hole[3]); h.lineTo(hole[1], hole[2]); h.closePath();
+    s.holes.push(h);
+  }
+  const g = new THREE.ExtrudeGeometry(s, { depth: z1 - z0, bevelEnabled: false });
+  g.translate(0, 0, z0);
+  return g;
+}
+
+const NICHE = { x0: 5.15, x1: 5.55, y0: 1.10, y1: 1.70, depth: 0.10 };
+const ROOM_DEPTH = 3.6;   // how far the floor, left wall and ceiling extend toward the viewer
+
+function buildFloor() {
+  archBox('arch-floor', ARCH.floor, [-0.12, 6.0, -0.05, 0, -0.12, ROOM_DEPTH], { cast: false });
+}
+function buildWalls() {
+  // back wall (with the shower-niche opening) and left wall
+  archMesh(panelWithHole(-0.12, 6.0, 0, 2.70, -0.12, 0, [NICHE.x0, NICHE.x1, NICHE.y0, NICHE.y1]), ARCH.wall, 'arch-walls', { cast: false });
+  archBox('arch-walls', ARCH.wall, [-0.12, 0, 0, 2.70, 0, ROOM_DEPTH], { cast: false });
+}
+function buildCeiling() {
+  archBox('arch-ceiling', ARCH.ceiling, [-0.12, 6.0, 2.70, 2.72, -0.12, ROOM_DEPTH], { cast: false, receive: false });
+}
+function buildCoveLedge() {
+  archBox('arch-ledge', ARCH.wall, [0, 4.65, 2.36, 2.40, 0, 0.20]);           // ledge shelf
+  archBox('arch-ledge', ARCH.wall, [0, 4.65, 2.34, 2.47, 0.20, 0.22]);        // fascia (hides the channel from below)
+}
+function buildBaseCabinets() {
+  archBox('arch-base', ARCH.cab, [0, 3.0, 0, 0.10, 0, 0.505]);                // recessed toe-kick plinth
+  for (let i = 0; i < 4; i++) {
+    const x0 = i * 0.75, x1 = x0 + 0.75;
+    archBox('arch-base', ARCH.cab, [x0 + 0.001, x1 - 0.001, 0.10, 0.87, 0, 0.58]);   // carcass
+    if (i === 2) { // sink base: double doors (power supplies live inside)
+      const xm = (x0 + x1) / 2;
+      archBox('arch-base', ARCH.cab, [x0 + 0.002, xm - 0.0015, 0.105, 0.865, 0.58, 0.60]);
+      archBox('arch-base', ARCH.cab, [xm + 0.0015, x1 - 0.002, 0.105, 0.865, 0.58, 0.60]);
+    } else {
+      archBox('arch-base', ARCH.cab, [x0 + 0.002, x1 - 0.002, 0.71, 0.865, 0.58, 0.60]);  // drawer
+      archBox('arch-base', ARCH.cab, [x0 + 0.002, x1 - 0.002, 0.105, 0.705, 0.58, 0.60]); // door
+    }
+  }
+  archBox('arch-base', ARCH.cab, [0, 3.0, 0.87, 0.91, 0, 0.635]);             // countertop
+}
+function buildUpperCabinets() {
+  for (let i = 0; i < 2; i++) {
+    const x0 = i * 1.5, x1 = x0 + 1.5;
+    archBox('arch-upper', ARCH.cab, [x0 + 0.001, x1 - 0.001, 1.37, 2.13, 0, 0.31]);
+    for (let k = 0; k < 2; k++) {
+      const d0 = x0 + k * 0.75;
+      archBox('arch-upper', ARCH.cab, [d0 + 0.002, d0 + 0.75 - 0.002, 1.375, 2.125, 0.31, 0.33]);
+    }
+  }
+  archBox('arch-upper', ARCH.cab, [0, 3.0, 1.345, 1.37, 0.31, 0.33]);         // light rail
+}
+function buildBookcase() {
+  const B = { x0: 3.30, x1: 4.30, d: 0.34 };
+  archBox('arch-bookcase', ARCH.cab, [B.x0, B.x0 + 0.02, 0, 2.10, 0, B.d]);
+  archBox('arch-bookcase', ARCH.cab, [B.x1 - 0.02, B.x1, 0, 2.10, 0, B.d]);
+  archBox('arch-bookcase', ARCH.cab, [B.x0 + 0.02, B.x1 - 0.02, 2.08, 2.10, 0, B.d]);
+  archBox('arch-bookcase', ARCH.cab, [B.x0 + 0.02, B.x1 - 0.02, 0, 0.08, 0.01, B.d - 0.01]);
+  archBox('arch-bookcase', ARCH.cab, [B.x0 + 0.02, B.x1 - 0.02, 0.08, 2.08, 0, 0.01], { cast: false });
+  [0.48, 0.88, 1.28, 1.68].forEach((y) => archBox('arch-bookcase', ARCH.cab, [B.x0 + 0.02, B.x1 - 0.02, y, y + 0.025, 0.01, B.d]));
+}
+function buildShower() {
+  const tile = archMesh(panelWithHole(4.75, 6.0, 0, 2.25, 0, 0.008, [NICHE.x0, NICHE.x1, NICHE.y0, NICHE.y1]), ARCH.tile, 'arch-shower', { cast: false });
+  archBox('arch-shower', ARCH.tile, [NICHE.x0, NICHE.x1, NICHE.y0, NICHE.y1, -0.12, -NICHE.depth], { cast: false }); // niche back
+  archBox('arch-shower', ARCH.tile, [4.75, 6.0, 0, 0.012, 0, 0.92], { cast: false });   // shower pan
+  archBox('arch-shower', ARCH.tile, [4.75, 6.0, 0, 0.11, 0.92, 1.02]);                  // curb
+  // grout lines
+  const pts = [], z = 0.0085;
+  for (let y = 0.3; y < 2.25; y += 0.3) {
+    if (y > NICHE.y0 && y < NICHE.y1) pts.push(4.75, y, z, NICHE.x0, y, z, NICHE.x1, y, z, 6.0, y, z);
+    else pts.push(4.75, y, z, 6.0, y, z);
+  }
+  for (let x = 5.05; x < 6.0; x += 0.6) {
+    if (x > NICHE.x0 && x < NICHE.x1) pts.push(x, 0, z, x, NICHE.y0, z, x, NICHE.y1, z, x, 2.25, z);
+    else pts.push(x, 0, z, x, 2.25, z);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  const grout = new THREE.LineSegments(g, archEdgeMat);
+  grout.userData.isEdge = true;
+  tile.add(grout);
+}
+function buildCloset() {
+  archBox('arch-closet', ARCH.closet, [3.25, 5.0, -0.05, 0, -1.18, -0.12], { cast: false });
+  archBox('arch-closet', ARCH.closet, [3.25, 3.33, 0, 2.70, -1.18, -0.12], { cast: false });
+  archBox('arch-closet', ARCH.closet, [4.92, 5.0, 0, 2.70, -1.18, -0.12], { cast: false });
+  archBox('arch-closet', ARCH.closet, [3.25, 5.0, 0, 2.70, -1.18, -1.10], { cast: false });
+}
+function buildFraming() {
+  const o = { cast: false, receive: false };
+  for (let x = 0.02; x < 6.0; x += 0.406) {
+    if (x > NICHE.x0 - 0.03 && x < NICHE.x1 + 0.03) continue;
+    archBox('arch-framing', ARCH.framing, [x - 0.019, x + 0.019, 0.04, 2.66, -0.105, -0.016], o);
+  }
+  for (let z = 0.2; z < ROOM_DEPTH; z += 0.406) archBox('arch-framing', ARCH.framing, [-0.105, -0.016, 0.04, 2.66, z - 0.019, z + 0.019], o);
+  archBox('arch-framing', ARCH.framing, [-0.12, 6.0, 2.62, 2.70, -0.105, -0.016], o);   // top plates
+  archBox('arch-framing', ARCH.framing, [-0.105, -0.016, 2.62, 2.70, 0, ROOM_DEPTH], o);
+  for (let x = 0.2; x < 6.0; x += 0.406) archBox('arch-framing', ARCH.framing, [x - 0.019, x + 0.019, 2.72, 2.96, -0.12, ROOM_DEPTH], o); // joists
+}
+
+/* =====================================================================
+   8. GEOMETRY BUILDERS — LED COMPONENTS
+   Each assembly is built in a local frame: X = across the channel,
+   Y = light direction (away from the mounting surface), Z = along the run.
+   ===================================================================== */
+function profileDims(P) {
+  const s = MM;
+  return {
+    W: P.W * s, H: P.H * s, t: P.t * s, g: 0.5 * s,
+    gy0: (P.H - 1.7) * s, gy1: (P.H - 0.4) * s,
+    clipT: 0.7 * s, tapeW: P.tape * s, pcbT: 0.3 * s,
+    chip: [2.8 * s, 0.8 * s, 3.5 * s],
+    dome: (P.dome || 0) * s, capT: 1.6 * s, clipLen: 10 * s,
+  };
+}
+/** U-channel with diffuser grooves. */
+function shapeChannel(d) {
+  const { W, H, t, g, gy0, gy1 } = d, o = W / 2, i = W / 2 - t;
+  const s = new THREE.Shape();
+  s.moveTo(-o, 0); s.lineTo(o, 0); s.lineTo(o, H); s.lineTo(i, H);
+  s.lineTo(i, gy1); s.lineTo(i + g, gy1); s.lineTo(i + g, gy0); s.lineTo(i, gy0); s.lineTo(i, t);
+  s.lineTo(-i, t); s.lineTo(-i, gy0); s.lineTo(-i - g, gy0); s.lineTo(-i - g, gy1); s.lineTo(-i, gy1);
+  s.lineTo(-i, H); s.lineTo(-o, H); s.closePath();
+  return s;
+}
+/** Flat or domed snap-in diffuser. */
+function shapeDiffuser(d, P) {
+  const a = d.W / 2 - d.t + d.g * 0.92, v0 = d.gy0 + 0.06 * MM, v1 = d.gy1 - 0.06 * MM;
+  const s = new THREE.Shape();
+  if (P.diffuser !== 'dome') {
+    s.moveTo(-a, v0); s.lineTo(a, v0); s.lineTo(a, v1); s.lineTo(-a, v1); s.closePath();
+    return s;
+  }
+  const c = d.W / 2 - d.t - 0.08 * MM;
+  s.moveTo(-a, v0); s.lineTo(a, v0); s.lineTo(a, v1); s.lineTo(c, v1); s.lineTo(c, d.H);
+  for (let k = 1; k < 24; k++) { const th = Math.PI * k / 24; s.lineTo(c * Math.cos(th), d.H + d.dome * Math.sin(th)); }
+  s.lineTo(-c, d.H); s.lineTo(-c, v1); s.lineTo(-a, v1); s.closePath();
+  return s;
+}
+/** Spring mounting clip (base plate with screw ears + side arms). */
+function shapeClip(d) {
+  const o = d.W / 2, e = 5 * MM, w = 0.7 * MM, ct = d.clipT, top = ct + 3.0 * MM, hook = 0.45 * MM;
+  const s = new THREE.Shape();
+  s.moveTo(-(o + e), 0); s.lineTo(o + e, 0); s.lineTo(o + e, ct); s.lineTo(o + w, ct); s.lineTo(o + w, top + w);
+  s.lineTo(o - hook, top + w); s.lineTo(o - hook, top); s.lineTo(o, top); s.lineTo(o, ct); s.lineTo(-o, ct);
+  s.lineTo(-o, top); s.lineTo(-o + hook, top); s.lineTo(-o + hook, top + w); s.lineTo(-(o + w), top + w);
+  s.lineTo(-(o + w), ct); s.lineTo(-(o + e), ct); s.closePath();
+  return s;
+}
+/** End-cap outline (channel silhouette + dome). */
+function shapeCap(d) {
+  const o = d.W / 2 + 0.25 * MM, top = d.H + 0.25 * MM;
+  const s = new THREE.Shape();
+  s.moveTo(-o, -0.2 * MM); s.lineTo(o, -0.2 * MM); s.lineTo(o, top);
+  if (d.dome > 0) {
+    const c = d.W / 2 - d.t + 0.3 * MM, dh = d.dome + 0.3 * MM;
+    s.lineTo(c, top);
+    for (let k = 1; k < 20; k++) { const th = Math.PI * k / 20; s.lineTo(c * Math.cos(th), top + dh * Math.sin(th)); }
+    s.lineTo(-c, top);
+  }
+  s.lineTo(-o, top); s.closePath();
+  return s;
+}
+
+const assemblies = [];                                        // every channel segment in the scene
+const lightMats = { pcb: [], chip: [], diffuser: [], halo: [], wash: [], schemTape: [] };
+
+/** One channel segment: clips + channel + tape + connectors + diffuser + end caps (+ glow halo, zone highlight). */
+function buildAssembly(zone, seg, { connStart = false, connEnd = false } = {}) {
+  const P = PROFILES[zone.profile], d = profileDims(P);
+  const a = v3(seg.a), b = v3(seg.b), len = a.distanceTo(b);
+  const zW = b.clone().sub(a).normalize();
+  const yW = v3(seg.aim).normalize(); yW.addScaledVector(zW, -yW.dot(zW)).normalize();
+  const xW = new THREE.Vector3().crossVectors(yW, zW);
+  const root = new THREE.Group();
+  root.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xW, yW, zW));
+  root.position.copy(a);
+  world.add(root);
+
+  // per-assembly material copies so a clipping plane affects only this assembly
+  const mats = {
+    channel: MAT.aluminum.clone(), clip: MAT.clip.clone(), cap: (P.sealed ? MAT.gasket : MAT.cap).clone(),
+    diffuser: MAT.diffuser.clone(), pcb: MAT.pcb.clone(), chip: MAT.chip.clone(),
+    connector: MAT.connector.clone(), contact: MAT.contact.clone(),
+    halo: new THREE.MeshBasicMaterial({ map: falloffTexture(0.5, 0.36, 0.03), transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0.5 }),
+    highlight: new THREE.MeshBasicMaterial({ color: zone.color, side: THREE.BackSide }),
+  };
+  lightMats.pcb.push(mats.pcb); lightMats.chip.push(mats.chip);
+  lightMats.diffuser.push(mats.diffuser); lightMats.halo.push(mats.halo);
+
+  const part = (name, layer, extra = {}) => {
+    const g = new THREE.Group(); g.name = name; root.add(g);
+    tag(g, layer, Object.assign({ zone: zone.id }, extra));
+    return g;
+  };
+  const parts = {
+    clips: part('clips', 'hardware'),
+    channel: part('channel', 'channels'),
+    caps: part('caps', 'hardware'),
+    tape: part('tape', 'tape'),
+    connectors: part('connectors', 'hardware'),
+    diffuser: part('diffuser', 'diffusers'),
+    halo: part('halo', 'tape', { glow: true }),
+    highlight: part('highlight', 'highlight'),
+  };
+  const v0 = d.clipT;                                     // channel sits on the clip base plates
+  const Htot = d.H + d.dome;
+
+  // aluminum channel
+  const chMesh = new THREE.Mesh(new THREE.ExtrudeGeometry(shapeChannel(d), { depth: len, bevelEnabled: false }), mats.channel);
+  chMesh.position.y = v0; chMesh.castShadow = true; parts.channel.add(chMesh);
+
+  // diffuser
+  const dfMesh = new THREE.Mesh(new THREE.ExtrudeGeometry(shapeDiffuser(d, P), { depth: len, bevelEnabled: false }), mats.diffuser);
+  dfMesh.position.y = v0; parts.diffuser.add(dfMesh);
+
+  // LED tape: PCB + LED chips (60 LEDs/m)
+  const inset = 2 * MM, tLen = Math.max(0.01, len - 2 * inset);
+  const pcbMesh = new THREE.Mesh(new THREE.BoxGeometry(d.tapeW, d.pcbT, tLen), mats.pcb);
+  pcbMesh.position.set(0, v0 + d.t + d.pcbT / 2, len / 2); parts.tape.add(pcbMesh);
+  const n = Math.max(1, Math.floor(tLen / (1 / 60)));
+  const chips = new THREE.InstancedMesh(new THREE.BoxGeometry(...d.chip), mats.chip, n);
+  const m4 = new THREE.Matrix4();
+  for (let k = 0; k < n; k++) { m4.makeTranslation(0, v0 + d.t + d.pcbT + d.chip[1] / 2, inset + (k + 0.5) * tLen / n); chips.setMatrixAt(k, m4); }
+  chips.instanceMatrix.needsUpdate = true;
+  parts.tape.add(chips);
+
+  // mounting clips
+  const clipGeo = new THREE.ExtrudeGeometry(shapeClip(d), { depth: d.clipLen, bevelEnabled: false });
+  const nClips = Math.max(2, Math.round(len / 0.5) + 1), margin = Math.min(0.06, len * 0.12);
+  for (let k = 0; k < nClips; k++) {
+    const c = new THREE.Mesh(clipGeo, mats.clip);
+    c.position.z = lerp(margin, len - margin - d.clipLen, k / (nClips - 1));
+    parts.clips.add(c);
+  }
+
+  // end caps (gasketed on sealed profiles)
+  const capGeo = new THREE.ExtrudeGeometry(shapeCap(d), { depth: d.capT, bevelEnabled: false });
+  const capS = new THREE.Mesh(capGeo, mats.cap), capE = new THREE.Mesh(capGeo, mats.cap);
+  capS.position.set(0, v0, -d.capT); capS.userData.baseZ = -d.capT; capS.userData.dir = -1;
+  capE.position.set(0, v0, len); capE.userData.baseZ = len; capE.userData.dir = 1;
+  parts.caps.add(capS, capE);
+
+  // clamp-on connectors at fed / jumpered ends
+  const connGeo = new THREE.BoxGeometry(11 * MM, 3.2 * MM, 13 * MM);
+  const contactGeo = new THREE.BoxGeometry(7 * MM, 0.4 * MM, 4 * MM);
+  const addConn = (z) => {
+    const c = new THREE.Mesh(connGeo, mats.connector);
+    c.position.set(0, v0 + d.t + d.pcbT + 1.6 * MM, z);
+    const k = new THREE.Mesh(contactGeo, mats.contact); k.position.y = 1.8 * MM; c.add(k);
+    parts.connectors.add(c);
+  };
+  if (connStart) addConn(inset + 6.5 * MM);
+  if (connEnd) addConn(len - inset - 6.5 * MM);
+
+  // soft glow halo just above the diffuser
+  const hw = d.W * 3.4, yTop = v0 + Htot + 0.6 * MM;
+  const halo = new THREE.Mesh(quadGeometry([-hw, yTop, 0], [0, 0, len], [2 * hw, 0, 0]), mats.halo);
+  halo.renderOrder = 2; parts.halo.add(halo);
+
+  // zone highlight (inverted hull outline in the zone color)
+  const e = 1.4 * MM;
+  const hl = new THREE.Mesh(boxGeo(-d.W / 2 - e, d.W / 2 + e, v0 - e, v0 + Htot + e, -d.capT - e, len + d.capT + e), mats.highlight);
+  parts.highlight.add(hl);
+
+  root.updateMatrixWorld(true);
+  const wireV = v0 + d.t + 1.6 * MM;
+  const as = {
+    zone, seg, P, d, len, a, b, xW, yW, zW, root, parts, mats, v0, Htot,
+    meshes: { channel: chMesh, diffuser: dfMesh, pcb: pcbMesh },
+    clipMats: Object.values(mats),
+    name: `${zone.code} ${zone.name} — ${seg.name}`,
+    feedStart: root.localToWorld(new THREE.Vector3(0, wireV, -d.capT - 3 * MM)),
+    feedEnd: root.localToWorld(new THREE.Vector3(0, wireV, len + d.capT + 3 * MM)),
+    worldPoint(x, y, z) { return this.root.localToWorld(new THREE.Vector3(x, y, z)); },
+  };
+  assemblies.push(as);
+  return as;
+}
+
+/** Light pool on a nearby surface (only shown with glow on and its surface visible). */
+function buildWash(zone, w) {
+  const mat = new THREE.MeshBasicMaterial({
+    map: falloffTexture(w.peak, w.sigma), transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  });
+  mat.userData.k = w.k;
+  lightMats.wash.push(mat);
+  const mesh = new THREE.Mesh(quadGeometry(w.o, w.u, w.v), mat);
+  mesh.renderOrder = 1;
+  mesh.raycast = () => {};
+  world.add(mesh);
+  tag(mesh, 'tape', { zone: zone.id, glow: true, requires: w.req ? [w.req] : null });
+  return mesh;
+}
+
+/* =====================================================================
+   9. GEOMETRY BUILDERS — POWER, CONTROLS, WIRING
+   ===================================================================== */
+/** Wire as a tube along a rounded orthogonal route. Returns { mesh, length, path }. */
+function buildWire(points, { radius, color, layer, zone = null, bend = 0.035 }) {
+  const path = roundedPath(points.map(v3), bend);
+  const length = path.getLength();
+  const geo = new THREE.TubeGeometry(path, Math.max(12, Math.ceil(length / 0.01)), radius, 8, false);
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.05 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  const capGeo = new THREE.SphereGeometry(radius * 1.15, 10, 8);
+  [path.getPointAt(0), path.getPointAt(1)].forEach((p) => { const s = new THREE.Mesh(capGeo, mat); s.position.copy(p); mesh.add(s); });
+  world.add(mesh);
+  tag(mesh, layer, { zone });
+  return { mesh, length, path };
+}
+const lineLegColor = (z) => new THREE.Color(z.color).lerp(new THREE.Color(COLORS.lineVoltage), 0.5);
+
+/** LED driver / power supply box. pos = point on the mounting surface, normal = surface direction. */
+function buildPowerSupply(z) {
+  const p = z.psu, L = 0.22, T = 0.042, Wd = 0.07;
+  const n = v3(p.normal).normalize();
+  const xA = new THREE.Vector3(p.flip ? -1 : 1, 0, 0);
+  const zA = new THREE.Vector3().crossVectors(xA, n);
+  const g = new THREE.Group();
+  g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA, n, zA));
+  g.position.copy(v3(p.pos));
+  const add = (geo, mat, cast = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; g.add(m); return m; };
+  add(boxGeo(-L / 2, L / 2, 0.003, T, -Wd / 2, Wd / 2), MAT.psuBody);
+  add(boxGeo(-L / 2 - 0.018, L / 2 + 0.018, 0, 0.003, -Wd * 0.3, Wd * 0.3), MAT.psuBody);         // mounting flange
+  add(boxGeo(-L * 0.28, L * 0.3, T, T + 0.0012, -Wd * 0.36, Wd * 0.36), MAT.psuLabel, false);       // label plate
+  add(boxGeo(-L * 0.28, -L * 0.16, T + 0.0012, T + 0.0018, -Wd * 0.36, Wd * 0.36), MAT.brand, false); // brand stripe
+  add(boxGeo(L * 0.18, L * 0.26, -0.0005 + 0.003, T + 0.0015, -Wd / 2 - 0.0015, Wd / 2 + 0.0015), new THREE.MeshStandardMaterial({ color: z.color, roughness: 0.5 })); // zone band
+  add(boxGeo(-L / 2 - 0.012, -L / 2, 0.006, T * 0.8, -Wd * 0.38, Wd * 0.38), MAT.terminal);
+  add(boxGeo(L / 2, L / 2 + 0.012, 0.006, T * 0.8, -Wd * 0.38, Wd * 0.38), MAT.terminal);
+  world.add(g);
+  g.updateMatrixWorld(true);
+  tag(g, 'psu', { zone: z.id });
+  z.psuIn = g.localToWorld(new THREE.Vector3(-L / 2 - 0.014, T * 0.5, 0));
+  z.psuOut = g.localToWorld(new THREE.Vector3(L / 2 + 0.014, T * 0.5, 0));
+  z.psuTop = g.localToWorld(new THREE.Vector3(0, T, 0));
+  z.psuGroup = g;
+}
+
+/** Multi-gang wall dimmer bank (one paddle per zone) on the left wall. */
+function buildDimmerBank() {
+  const n = ZONES.length, { x, y, zc, pitch } = DIMMER_BANK, half = (n * pitch) / 2 + 0.018;
+  const plate = new THREE.Mesh(boxGeo(x, x + 0.006, y - 0.066, y + 0.066, zc - half, zc + half), MAT.plate);
+  plate.castShadow = true; world.add(plate); tag(plate, 'dimmers');
+  const box = new THREE.Mesh(boxGeo(x - 0.09, x - 0.002, y - 0.072, y + 0.072, zc - half + 0.01, zc + half - 0.01), MAT.wallBox);
+  world.add(box); tag(box, 'dimmers');
+  ZONES.forEach((z, k) => {
+    const zk = zc + (k - (n - 1) / 2) * pitch;
+    z.dimmerZ = zk;
+    const g = new THREE.Group();
+    const paddle = new THREE.Mesh(boxGeo(x + 0.006, x + 0.013, y - 0.042, y + 0.042, zk - 0.0165, zk + 0.0165), MAT.plate);
+    paddle.castShadow = true;
+    const led = new THREE.Mesh(boxGeo(x + 0.013, x + 0.0145, y - 0.03, y + 0.03, zk + 0.0105, zk + 0.0138), new THREE.MeshBasicMaterial({ color: z.color }));
+    g.add(paddle, led);
+    world.add(g);
+    tag(g, 'dimmers', { zone: z.id });
+    z.dimmerOut = new THREE.Vector3(x - 0.045, y + 0.072, zk);
+    z.dimmerPos = new THREE.Vector3(x + 0.013, y, zk);
+  });
+  DIMMER_BANK.center = new THREE.Vector3(x + 0.006, y + 0.066, zc);
+}
+
+/** Breaker panel with dead-front and breaker handles (lighting breaker in accent color). */
+function buildBreakerPanel() {
+  const [x0, x1, y0, y1, z0, z1] = BREAKER.box;
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(boxGeo(x0, x1, y0, y1, z0, z1), MAT.panel); body.castShadow = true; g.add(body);
+  const front = new THREE.Mesh(boxGeo(x0 + 0.03, x1 - 0.03, y0 + 0.06, y1 - 0.05, z1, z1 + 0.003), MAT.plate); g.add(front);
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 2; c++) {
+    const bx = (x0 + x1) / 2 + (c ? 0.03 : -0.07), by = y1 - 0.1 - r * 0.062;
+    const mat = (r === 2 && c === 0) ? MAT.accent : MAT.breaker;
+    g.add(new THREE.Mesh(boxGeo(bx, bx + 0.04, by - 0.012, by + 0.012, z1 + 0.003, z1 + 0.012), mat));
+  }
+  world.add(g);
+  tag(g, 'panel');
+  BREAKER.top = new THREE.Vector3((x0 + x1) / 2, y1, (z0 + z1) / 2);
+  BREAKER.front = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2 + 0.15, z1 + 0.01);
+}
+
+/* =====================================================================
+   10. SYSTEM BUILD — turns ZONES data into geometry
+   ===================================================================== */
+function buildZone(z) {
+  z.assemblies = [];
+  z.runs.forEach((run) => {
+    const last = run.segments.length - 1;
+    run.assemblies = run.segments.map((seg, si) => buildAssembly(z, seg, {
+      connStart: (si === 0 && run.feed === 'start') || si > 0,
+      connEnd: (si === last && run.feed === 'end') || si < last,
+    }));
+    z.assemblies.push(...run.assemblies);
+    // jumpers between consecutive segments
+    for (let i = 0; i < last; i++) {
+      const A = run.assemblies[i], B = run.assemblies[i + 1];
+      const pA = A.feedEnd, pB = B.feedStart, mid = pA.clone().add(pB).multiplyScalar(0.5);
+      const curve = new THREE.CatmullRomCurve3([pA, pA.clone().addScaledVector(A.zW, 0.008).addScaledVector(A.yW, 0.008), mid.clone().addScaledVector(A.yW, 0.022), pB.clone().addScaledVector(B.zW, -0.008).addScaledVector(B.yW, 0.008), pB]);
+      const jm = new THREE.Mesh(new THREE.TubeGeometry(curve, 40, WIRE_RADIUS.lv * 0.6, 8, false), new THREE.MeshStandardMaterial({ color: z.color, roughness: 0.45 }));
+      world.add(jm);
+      tag(jm, 'hardware', { zone: z.id });
+    }
+    run.feedPoint = run.feed === 'start' ? run.assemblies[0].feedStart : run.assemblies[last].feedEnd;
+  });
+  z.totalLen = z.assemblies.reduce((s, a) => s + a.len, 0);
+  (z.washes || []).forEach((w) => buildWash(z, w));
+  buildPowerSupply(z);
+  // line voltage: dimmer -> power supply input
+  const linePts = [z.dimmerOut, ...z.lineRoute.map((p) => v3(p.map((c) => (c === 'DZ' ? z.dimmerZ : c)))), z.psuIn];
+  z.lineWire = buildWire(linePts, { radius: WIRE_RADIUS.line, color: lineLegColor(z), layer: 'wire-line', zone: z.id });
+  // low voltage: power supply output -> each run's feed end
+  z.lvWires = z.runs.map((run, ri) => buildWire([z.psuOut, ...(z.lvRoutes[ri] || []).map(v3), run.feedPoint],
+    { radius: WIRE_RADIUS.lv, color: z.color, layer: 'wire-lv', zone: z.id, bend: 0.025 }));
+}
+
+function buildSystem() {
+  LAYERS.forEach((l) => l.build && l.build());
+  buildDimmerBank();
+  buildBreakerPanel();
+  ZONES.forEach(buildZone);
+  BREAKER.feedWire = buildWire(BREAKER.feedRoute, { radius: WIRE_RADIUS.line, color: COLORS.lineVoltage, layer: 'wire-line' });
+}
+
+/* =====================================================================
+   11. LABELS, CALLOUTS & DIMENSIONS
+   Drawn on a 2D canvas over the WebGL view (crisp text, leader lines,
+   automatic de-overlap). The same drawing code runs at export scale, so
+   labels are included in PNG exports.
+   Label kinds: callout (box + leader), wire (pill tag), dim (dimension
+   line), text (diagram text), detail (exploded/section part callouts).
+   ===================================================================== */
+const labels = [];
+function addLabel(l) { const o = Object.assign({ kind: 'callout', space: '3d' }, l); labels.push(o); return o; }
+/** True when the camera is zoomed in on the exploded / cross-section assembly: room-scale labels are hidden. */
+function detailFocus() {
+  return state.mode === '3d' && (state.explode > 0.02 || state.section) && rig.camera === perspCam &&
+    rig.target.distanceTo(cutPoint(selectedAssembly())) < 0.6 && rig.radius < 1.2;
+}
+function labelVisible(l) {
+  if (l.space !== (state.mode === 'schem' ? 'schem' : '3d')) return false;
+  if (l.space === '3d' && l.kind !== 'detail' && !l.detailDim && detailFocus()) return false;
+  if (l.layer && !layerOn[l.layer]) return false;
+  if (l.zone && !zoneOn[resolve(l.zone)]) return false;
+  if (l.requires && !l.requires.every((id) => layerOn[id])) return false;
+  if (l.requiresAny && !l.requiresAny.some((id) => layerOn[id])) return false;
+  if (l.when && !l.when()) return false;
+  return true;
+}
+const LABEL_THEMES = {
+  light: { box: 'rgba(255,255,255,0.97)', border: 'rgba(25,35,45,0.16)', title: '#1b222b', sub: '#5b6572', leader: '#5b6572', dim: '#3f4955', shadow: 'rgba(20,30,40,0.14)', text: '#1b222b', muted: '#5b6572' },
+  dark:  { box: 'rgba(33,39,47,0.96)',   border: 'rgba(255,255,255,0.16)', title: '#f2f4f7', sub: '#a9b3bf', leader: '#c3cbd5', dim: '#c3cbd5', shadow: 'rgba(0,0,0,0.35)', text: '#eef1f4', muted: '#a9b3bf' },
+};
+const INK = { text: '#1b222b', muted: '#5b6572' };       // text inside white diagram blocks
+const currentTheme = () => (BACKGROUNDS[state.bg] || BACKGROUNDS.light).theme;
+const _pv = new THREE.Vector3();
+
+function roundRect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function measureLabel(ctx, l, S) {
+  const F = BRAND.font, title = resolve(l.title) || '', sub = resolve(l.sub) || '';
+  if (l.kind === 'wire') {
+    const fs = 10.5 * S; ctx.font = `600 ${fs}px ${F}`;
+    return { w: ctx.measureText(title).width + 24 * S, h: fs + 10 * S, fs, title, sub: '' };
+  }
+  const fs1 = 12.5 * S, fs2 = 10.5 * S, padX = 9 * S, padY = 6 * S, bar = 4 * S;
+  ctx.font = `600 ${fs1}px ${F}`; const tw = ctx.measureText(title).width;
+  let sw = 0; if (sub) { ctx.font = `400 ${fs2}px ${F}`; sw = ctx.measureText(sub).width; }
+  return { w: Math.max(tw, sw) + padX * 2 + bar, h: padY * 2 + fs1 * 1.2 + (sub ? fs2 * 1.35 : 0), fs1, fs2, padX, padY, bar, title, sub };
+}
+function drawLabelBox(ctx, b, th, S) {
+  const F = BRAND.font, m = b.m;
+  if (b.l.kind === 'wire') {
+    roundRect(ctx, b.x, b.y, b.w, b.h, b.h / 2);
+    ctx.fillStyle = th.box; ctx.fill();
+    ctx.lineWidth = 1.5 * S; ctx.strokeStyle = b.color; ctx.stroke();
+    ctx.beginPath(); ctx.arc(b.x + 9 * S, b.y + b.h / 2, 3 * S, 0, Math.PI * 2); ctx.fillStyle = b.color; ctx.fill();
+    ctx.font = `600 ${m.fs}px ${F}`; ctx.fillStyle = th.title; ctx.textBaseline = 'middle';
+    ctx.fillText(m.title, b.x + 16 * S, b.y + b.h / 2 + 0.5 * S);
+    return;
+  }
+  const r = 6 * S;
+  ctx.save();
+  ctx.shadowColor = th.shadow; ctx.shadowBlur = 8 * S; ctx.shadowOffsetY = 1.5 * S;
+  roundRect(ctx, b.x, b.y, b.w, b.h, r); ctx.fillStyle = th.box; ctx.fill();
+  ctx.restore();
+  ctx.save(); roundRect(ctx, b.x, b.y, b.w, b.h, r); ctx.clip();
+  ctx.fillStyle = b.color; ctx.fillRect(b.x, b.y, m.bar, b.h);
+  ctx.restore();
+  roundRect(ctx, b.x, b.y, b.w, b.h, r); ctx.lineWidth = 1 * S; ctx.strokeStyle = th.border; ctx.stroke();
+  ctx.textBaseline = 'top';
+  ctx.font = `600 ${m.fs1}px ${F}`; ctx.fillStyle = th.title;
+  ctx.fillText(m.title, b.x + m.bar + m.padX, b.y + m.padY);
+  if (m.sub) { ctx.font = `400 ${m.fs2}px ${F}`; ctx.fillStyle = th.sub; ctx.fillText(m.sub, b.x + m.bar + m.padX, b.y + m.padY + m.fs1 * 1.2 + 1 * S); }
+}
+function drawLeader(ctx, b, th, S) {
+  if (!b.A) return;
+  const A = b.A, cy = b.y + b.h / 2;
+  let ex, ey;
+  if (A.x < b.x) { ex = b.x; ey = cy; } else if (A.x > b.x + b.w) { ex = b.x + b.w; ey = cy; } else { ex = A.x; ey = A.y < b.y ? b.y : b.y + b.h; }
+  ctx.strokeStyle = th.leader; ctx.lineWidth = 1.25 * S;
+  ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(ex, ey); ctx.stroke();
+  ctx.beginPath(); ctx.arc(A.x, A.y, 3.2 * S, 0, Math.PI * 2);
+  ctx.fillStyle = b.color; ctx.fill(); ctx.lineWidth = 1.5 * S; ctx.strokeStyle = th.box; ctx.stroke();
+}
+function resolveOverlaps(boxes, w, h, pad) {
+  const overlap = (a, b) => a.x < b.x + b.w + pad && a.x + a.w + pad > b.x && a.y < b.y + b.h + pad && a.y + a.h + pad > b.y;
+  for (let pass = 0; pass < 5; pass++) {
+    boxes.sort((a, b) => a.y - b.y);
+    let moved = false;
+    for (let i = 0; i < boxes.length; i++) for (let j = 0; j < i; j++) {
+      if (overlap(boxes[i], boxes[j])) { boxes[i].y = boxes[j].y + boxes[j].h + pad; moved = true; }
+    }
+    boxes.forEach((b) => { b.x = clamp(b.x, 4, Math.max(4, w - b.w - 4)); b.y = clamp(b.y, 4, Math.max(4, h - b.h - 4)); });
+    if (!moved) break;
+  }
+}
+function drawDimension(ctx, l, proj, th, S) {
+  const a = v3(resolve(l.a)), b = v3(resolve(l.b)), off = v3(resolve(l.off) || [0, 0, 0]);
+  const pa = proj(a), pb = proj(b), pA = proj(a.clone().add(off)), pB = proj(b.clone().add(off));
+  if (!pa || !pb || !pA || !pB) return;
+  const dx = pB.x - pA.x, dy = pB.y - pA.y, L = Math.hypot(dx, dy);
+  if (L < 14 * S) return;
+  const ux = dx / L, uy = dy / L;
+  ctx.strokeStyle = th.dim; ctx.lineWidth = 1 * S;
+  // extension lines (with a small overshoot)
+  [[pa, pA], [pb, pB]].forEach(([p, q]) => {
+    const ex = q.x - p.x, ey = q.y - p.y, el = Math.hypot(ex, ey) || 1;
+    ctx.beginPath(); ctx.moveTo(p.x + ex / el * 3 * S, p.y + ey / el * 3 * S); ctx.lineTo(q.x + ex / el * 5 * S, q.y + ey / el * 5 * S); ctx.stroke();
+  });
+  // dimension line with architectural ticks
+  ctx.lineWidth = 1.2 * S;
+  ctx.beginPath(); ctx.moveTo(pA.x, pA.y); ctx.lineTo(pB.x, pB.y); ctx.stroke();
+  const t = 5 * S, tx = (ux - uy) * 0.7071 * t, ty = (uy + ux) * 0.7071 * t;
+  ctx.lineWidth = 1.8 * S;
+  [pA, pB].forEach((p) => { ctx.beginPath(); ctx.moveTo(p.x - tx, p.y - ty); ctx.lineTo(p.x + tx, p.y + ty); ctx.stroke(); });
+  // value
+  const text = resolve(l.text) || fmtLen(a.distanceTo(b));
+  const fs = 11 * S; ctx.font = `600 ${fs}px ${BRAND.font}`;
+  const tw = ctx.measureText(text).width + 12 * S, thh = fs + 8 * S;
+  const mx = (pA.x + pB.x) / 2, my = (pA.y + pB.y) / 2;
+  roundRect(ctx, mx - tw / 2, my - thh / 2, tw, thh, 4 * S); ctx.fillStyle = th.box; ctx.fill();
+  ctx.lineWidth = 1 * S; ctx.strokeStyle = th.dim; ctx.stroke();
+  ctx.fillStyle = th.title; ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+  ctx.fillText(text, mx, my + 0.5 * S); ctx.textAlign = 'left';
+}
+function drawDiagramText(ctx, l, proj, th, h, cam) {
+  const p = proj(v3(resolve(l.anchor))); if (!p) return;
+  const ppu = h / ((cam.top - cam.bottom) / cam.zoom);
+  const fs = l.worldSize * ppu; if (fs < 3) return;
+  ctx.font = `${l.weight || 400} ${fs}px ${BRAND.font}`;
+  ctx.fillStyle = l.ink ? (l.muted ? INK.muted : INK.text) : (l.muted ? th.muted : th.text);
+  if (l.color) ctx.fillStyle = resolve(l.color);
+  ctx.textAlign = l.align || 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(resolve(l.text), p.x, p.y);
+  ctx.textAlign = 'left';
+}
+
+/** Draw every visible label for the given camera. Units: CSS pixels (ctx is pre-scaled). */
+function drawOverlay(ctx, w, h, cam) {
+  const th = LABEL_THEMES[currentTheme()], S = state.labelScale;
+  cam.updateMatrixWorld();
+  const proj = (p) => {
+    _pv.copy(p).project(cam);
+    if (_pv.z > 1 || _pv.z < -1) return null;
+    return { x: (_pv.x + 1) / 2 * w, y: (1 - _pv.y) / 2 * h };
+  };
+  const vis = labels.filter(labelVisible);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+  vis.filter((l) => l.kind === 'dim').forEach((l) => drawDimension(ctx, l, proj, th, S));
+  vis.filter((l) => l.kind === 'text').forEach((l) => drawDiagramText(ctx, l, proj, th, h, cam));
+
+  // callouts + wire tags
+  const boxes = [];
+  vis.filter((l) => l.kind === 'callout' || l.kind === 'wire').forEach((l) => {
+    const anchor = v3(resolve(l.anchor)), A = proj(anchor);
+    if (!A || A.x < -40 || A.x > w + 40 || A.y < -40 || A.y > h + 40) return;
+    const m = measureLabel(ctx, l, S), color = resolve(l.color) || BRAND.primary;
+    let x, y;
+    if (l.kind === 'wire') { x = A.x - m.w / 2; y = A.y - m.h / 2; }
+    else {
+      const L = proj(anchor.clone().add(v3(resolve(l.offset) || [0, 0.3, 0]))) || { x: A.x + 60, y: A.y - 40 };
+      x = L.x >= A.x ? L.x : L.x - m.w; y = L.y - m.h / 2;
+    }
+    boxes.push({ l, m, x, y, w: m.w, h: m.h, A: l.kind === 'wire' ? null : A, color });
+  });
+  resolveOverlaps(boxes, w, h, 6 * S);
+  boxes.forEach((b) => drawLeader(ctx, b, th, S));
+  boxes.forEach((b) => drawLabelBox(ctx, b, th, S));
+
+  // exploded / section detail callouts: column beside the assembly
+  const det = vis.filter((l) => l.kind === 'detail').map((l) => ({ l, A: proj(v3(resolve(l.anchor))) })).filter((o) => o.A && o.A.x > -20 && o.A.x < w + 20 && o.A.y > -20 && o.A.y < h + 20);
+  if (det.length) {
+    const ms = det.map((o) => measureLabel(ctx, o.l, S));
+    const maxW = Math.max(...ms.map((m) => m.w));
+    const ax = det.map((o) => o.A.x), gap = 70 * S;
+    const rightRoom = w - 8 - (Math.max(...ax) + gap), leftRoom = Math.min(...ax) - gap - 8;
+    const left = rightRoom < maxW && leftRoom > rightRoom;
+    const colX = left ? Math.max(8, Math.min(...ax) - gap - maxW) : Math.min(Math.max(...ax) + gap, w - 8 - maxW);
+    const dboxes = det.map((o, i) => ({ l: o.l, m: ms[i], A: o.A, x: left ? colX + maxW - ms[i].w : colX, y: o.A.y - ms[i].h / 2, w: ms[i].w, h: ms[i].h, color: resolve(o.l.color) || BRAND.primary }));
+    dboxes.sort((a, b) => a.A.y - b.A.y);
+    for (let i = 1; i < dboxes.length; i++) dboxes[i].y = Math.max(dboxes[i].y, dboxes[i - 1].y + dboxes[i - 1].h + 6 * S);
+    const shift = (dboxes.reduce((s, b) => s + b.A.y, 0) - dboxes.reduce((s, b) => s + b.y + b.h / 2, 0)) / dboxes.length;
+    dboxes.forEach((b) => { b.y = clamp(b.y + shift, 4, h - b.h - 4); });
+    dboxes.forEach((b) => drawLeader(ctx, b, th, S));
+    dboxes.forEach((b) => drawLabelBox(ctx, b, th, S));
+  }
+}
+
+function wireLabelPoint(path) {
+  // pick a point along the longest straight-ish stretch so the tag sits on visible wire
+  return path.getPointAt(0.5);
+}
+function selectedAssembly() { return assemblies[state.selected] || assemblies[0]; }
+const visibleZoneIds = () => ZONES.filter((z) => zoneOn[z.id]).map((z) => z.id);
+
+function buildLabels() {
+  ZONES.forEach((z) => {
+    const P = PROFILES[z.profile];
+    const [ri, si] = z.callout.seg, as = z.runs[ri].assemblies[si];
+    const runText = z.runs.length > 1 ? ` · ${z.runs.length} runs` : '';
+    addLabel({
+      zone: z.id, layer: 'labels-callouts', requiresAny: ['tape', 'channels', 'diffusers'], color: z.color,
+      anchor: as.worldPoint(0, as.v0 + as.Htot, as.len * z.callout.t), offset: z.callout.offset,
+      title: `${z.code} · ${z.name}`, sub: `${P.name} · ${fmtLen(z.totalLen)} total${runText}`,
+    });
+    addLabel({
+      zone: z.id, layer: 'labels-callouts', requires: ['psu'], color: z.color,
+      anchor: z.psuTop, offset: z.psuCallout,
+      title: `${z.code} Power supply`, sub: `${z.psu.watts} · ${z.psu.volts} · ${z.psu.location}`,
+    });
+    const longest = z.lvWires.reduce((m, w) => (w.length > m.length ? w : m), z.lvWires[0]);
+    addLabel({
+      kind: 'wire', zone: z.id, layer: 'labels-wires', requires: ['wire-lv'], color: z.color,
+      anchor: wireLabelPoint(longest.path),
+      title: `${z.code} LV · ${z.gauge.lv} · 24V DC · ${fmtApprox(longest.length)}${z.lvWires.length > 1 ? ' (longest)' : ''}`,
+    });
+    addLabel({
+      kind: 'wire', zone: z.id, layer: 'labels-wires', requires: ['wire-line'], color: lineLegColor(z).getStyle(),
+      anchor: z.lineWire.path.getPointAt(0.62),
+      title: `${z.code} switched leg · ${z.gauge.line} · 120V · ${fmtApprox(z.lineWire.length)}`,
+    });
+    (z.dims || []).forEach((d) => addLabel({ kind: 'dim', zone: z.id, layer: 'labels-dims', a: d.a, b: d.b, off: d.off, text: d.text }));
+  });
+
+  addLabel({
+    layer: 'labels-callouts', requires: ['dimmers'], color: () => { const v = visibleZoneIds(); return v.length === 1 ? ZONES.find((z) => z.id === v[0]).color : BRAND.primary; },
+    anchor: DIMMER_BANK.center, offset: [0.25, 0.42, 0.55],
+    title: () => { const v = visibleZoneIds(); return v.length === 1 ? `${ZONES.find((z) => z.id === v[0]).code} Wall dimmer` : 'Wall dimmers'; },
+    sub: () => { const v = visibleZoneIds(); return v.length === 1 ? `${ZONES.find((z) => z.id === v[0]).dimmer.type} · 1 gang` : `${ZONES.length}-gang · 1 per zone · ELV`; },
+  });
+  addLabel({ layer: 'labels-callouts', requires: ['panel'], color: BRAND.accent, anchor: BREAKER.front, offset: [-0.25, 0.75, 0.6], title: BREAKER.label, sub: BREAKER.sub });
+  addLabel({
+    kind: 'wire', layer: 'labels-wires', requires: ['wire-line'], color: COLORS.lineVoltage,
+    anchor: BREAKER.feedWire.path.getPointAt(0.55), title: `Feed · ${BREAKER.gauge} · 120V · ${fmtApprox(BREAKER.feedWire.length)}`,
+  });
+  ROOM_LABELS.forEach((r) => addLabel({ layer: 'labels-room', requires: r.requires, color: '#9aa3ad', anchor: r.anchor, offset: r.offset, title: r.text }));
+
+  // ---- detail callouts for the selected assembly (exploded view / cross-section)
+  const detailOn = () => state.mode === '3d' && (state.explode > 0.02 || state.section);
+  const az = () => { const as = selectedAssembly(); return state.section ? Math.max(0, as.len * state.cutPos - 0.004) : Math.min(as.len * 0.5, 0.25); };
+  const dpt = (part, y) => () => { const as = selectedAssembly(); const p = as.parts[part]; p.updateMatrixWorld(true); return p.localToWorld(new THREE.Vector3(0, y(as), az())); };
+  const common = { kind: 'detail', layer: 'labels-callouts', zone: () => selectedAssembly().zone.id, when: detailOn, color: () => selectedAssembly().zone.color };
+  addLabel(Object.assign({}, common, {
+    anchor: dpt('diffuser', (as) => as.v0 + as.Htot - 0.2 * MM), title: 'Diffuser',
+    sub: () => { const P = selectedAssembly().P; return P.diffuser === 'dome' ? 'Frosted dome lens · snap-in' : 'Frosted flat lens · snap-in'; }, requires: ['diffusers'],
+  }));
+  addLabel(Object.assign({}, common, {
+    anchor: dpt('tape', (as) => as.v0 + as.d.t + as.d.pcbT), title: 'LED tape',
+    sub: () => `${selectedAssembly().P.tape} mm PCB · 24V DC · 60 LEDs/m · ${state.cct}K`, requires: ['tape'],
+  }));
+  addLabel(Object.assign({}, common, {
+    anchor: () => { const as = selectedAssembly(); const p = as.parts.channel; p.updateMatrixWorld(true); return p.localToWorld(new THREE.Vector3(as.d.W / 2, as.v0 + as.d.H * 0.5, az())); },
+    title: 'Aluminum channel',
+    sub: () => { const P = selectedAssembly().P; return `${P.name} · ${P.W} × ${P.H} mm`; }, requires: ['channels'],
+  }));
+  addLabel(Object.assign({}, common, {
+    anchor: () => { const as = selectedAssembly(); const p = as.parts.clips; p.updateMatrixWorld(true); const z = az(); const kept = p.children.filter((k) => !state.section || k.position.z < z); const c = (kept.length ? kept : p.children).reduce((m, k) => (Math.abs(k.position.z - z) < Math.abs(m.position.z - z) ? k : m)); return p.localToWorld(new THREE.Vector3(as.d.W / 2 + 4 * MM, as.d.clipT * 0.5, c.position.z + as.d.clipLen / 2)); },
+    title: 'Mounting clip', sub: 'Spring steel · screw-mounted', requires: ['hardware'],
+  }));
+  addLabel(Object.assign({}, common, {
+    anchor: () => { const as = selectedAssembly(); const c = as.parts.caps.children[!state.section && az() > as.len / 2 ? 1 : 0]; c.updateMatrixWorld(true); return c.localToWorld(new THREE.Vector3(0, as.d.H * 0.5, 0)); },
+    title: () => (selectedAssembly().P.sealed ? 'Sealed end cap' : 'End cap'),
+    sub: () => (selectedAssembly().P.sealed ? 'Gasketed · IP67 with sealant' : 'Snap-on · feed hole on lead end'), requires: ['hardware'],
+  }));
+  addLabel(Object.assign({}, common, {
+    anchor: () => { const as = selectedAssembly(); return as.worldPoint(-as.d.W * 0.9, -0.002, az()); },
+    title: 'Mounting surface', sub: () => selectedAssembly().zone.surface || 'Substrate', when: () => detailOn() && state.explode > 0.02,
+  }));
+  // profile dimensions at the cut (cross-section mode)
+  const cutZ = () => { const as = selectedAssembly(); return as.len * state.cutPos - 0.0005; };
+  const lift = () => 2 * state.explode * EXPLODE_STEP;
+  addLabel({
+    kind: 'dim', detailDim: true, layer: 'labels-dims', when: () => state.mode === '3d' && state.section, zone: () => selectedAssembly().zone.id,
+    a: () => { const as = selectedAssembly(); return as.worldPoint(-as.d.W / 2, as.v0 + lift(), cutZ()); },
+    b: () => { const as = selectedAssembly(); return as.worldPoint(as.d.W / 2, as.v0 + lift(), cutZ()); },
+    off: () => selectedAssembly().yW.clone().multiplyScalar(-0.012),
+    text: () => `${selectedAssembly().P.W} mm`,
+  });
+  addLabel({
+    kind: 'dim', detailDim: true, layer: 'labels-dims', when: () => state.mode === '3d' && state.section, zone: () => selectedAssembly().zone.id,
+    a: () => { const as = selectedAssembly(); return as.worldPoint(as.d.W / 2, as.v0 + lift(), cutZ()); },
+    b: () => { const as = selectedAssembly(); return as.worldPoint(as.d.W / 2, as.v0 + as.d.H + lift(), cutZ()); },
+    off: () => { const as = selectedAssembly(); return as.xW.clone().multiplyScalar(0.014); },
+    text: () => `${selectedAssembly().P.H} mm`,
+  });
+}
+
+/* =====================================================================
+   12. LIGHTING STATE — glow, brightness (emissive strength), CCT, dim
+   ===================================================================== */
+function updateLighting() {
+  const cct = new THREE.Color(CCT_COLORS[state.cct]), white = new THREE.Color(1, 1, 1);
+  const I = glowActive() ? state.brightness * state.dim : 0;
+  lightMats.chip.forEach((m) => { m.emissive.copy(cct).lerp(white, 0.3); m.emissiveIntensity = 1.6 * I; });
+  lightMats.pcb.forEach((m) => { m.emissive.copy(cct); m.emissiveIntensity = 0.6 * I; });
+  lightMats.diffuser.forEach((m) => { m.emissive.copy(white).lerp(cct, 0.72); m.emissiveIntensity = Math.min(1.15, 0.95 * I); });
+  lightMats.halo.forEach((m) => { m.color.copy(cct).lerp(white, 0.15); m.opacity = clamp(0.55 * I, 0, 0.95); });
+  lightMats.wash.forEach((m) => { m.color.copy(cct); m.opacity = clamp(0.62 * m.userData.k * I, 0, 0.95); });
+  const off = new THREE.Color(COLORS.chip), gray = new THREE.Color('#a7aeb7');
+  lightMats.schemTape.forEach((m) => {
+    if (I <= 0) m.color.copy(off);
+    else m.color.copy(cct).lerp(white, 0.1).lerp(gray, (1 - Math.min(1, I)) * 0.65);
+  });
+  applyVisibility();
+}
+
+/* =====================================================================
+   13. EXPLODED VIEW & CROSS-SECTION (selected assembly only)
+   ===================================================================== */
+function setAssemblyExplode(as, t) {
+  const d = t * EXPLODE_STEP, P = as.parts;
+  P.clips.position.y = d;
+  P.channel.position.y = P.highlight.position.y = P.caps.position.y = 2 * d;
+  P.caps.children.forEach((c) => { c.position.z = c.userData.baseZ + c.userData.dir * d; });
+  P.tape.position.y = P.connectors.position.y = 3 * d;
+  P.diffuser.position.y = P.halo.position.y = 4 * d;
+}
+function applyExplode() {
+  const sel = selectedAssembly();
+  assemblies.forEach((as) => setAssemblyExplode(as, as === sel ? state.explode : 0));
+  updateSectionPlane();
+  requestRender();
+}
+
+const sectionPlane = new THREE.Plane();
+const section = { as: null, caps: [], stencils: [], helper: null };
+const SECTION_FILL = { channel: COLORS.sectionCut, diffuser: '#fbfbfb', pcb: '#eadfbf' };
+const cutPoint = (as) => as.a.clone().addScaledVector(as.zW, as.len * state.cutPos);
+
+function clearSection() {
+  if (section.as) section.as.clipMats.forEach((m) => { m.clippingPlanes = null; m.needsUpdate = true; });
+  section.stencils.forEach((o) => o.parent && o.parent.remove(o));
+  section.caps.forEach((o) => { world.remove(o); untag(o); });
+  if (section.helper) { world.remove(section.helper); untag(section.helper); }
+  Object.assign(section, { as: null, caps: [], stencils: [], helper: null });
+}
+/** Clip the selected assembly with a plane across its length and fill the cut faces (stencil capping). */
+function applySection() {
+  clearSection();
+  if (!state.section) { applyVisibility(); return; }
+  const as = selectedAssembly();
+  section.as = as;
+  as.clipMats.forEach((m) => { m.clippingPlanes = [sectionPlane]; m.needsUpdate = true; });
+  [['channel', 'channels'], ['diffuser', 'diffusers'], ['pcb', 'tape']].forEach(([key, layer], i) => {
+    const mesh = as.meshes[key], ro = 20 + i * 3;
+    const base = { depthWrite: false, depthTest: false, colorWrite: false, stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc, clippingPlanes: [sectionPlane] };
+    const back = new THREE.MeshBasicMaterial(Object.assign({ side: THREE.BackSide, stencilFail: THREE.IncrementWrapStencilOp, stencilZFail: THREE.IncrementWrapStencilOp, stencilZPass: THREE.IncrementWrapStencilOp }, base));
+    const front = new THREE.MeshBasicMaterial(Object.assign({ side: THREE.FrontSide, stencilFail: THREE.DecrementWrapStencilOp, stencilZFail: THREE.DecrementWrapStencilOp, stencilZPass: THREE.DecrementWrapStencilOp }, base));
+    const m0 = new THREE.Mesh(mesh.geometry, back), m1 = new THREE.Mesh(mesh.geometry, front);
+    m0.renderOrder = m1.renderOrder = ro;
+    m0.raycast = m1.raycast = () => {};
+    mesh.add(m0, m1);
+    section.stencils.push(m0, m1);
+    const capMat = new THREE.MeshStandardMaterial({
+      color: SECTION_FILL[key], metalness: key === 'channel' ? 0.35 : 0, roughness: 0.6, side: THREE.DoubleSide,
+      stencilWrite: true, stencilRef: 0, stencilFunc: THREE.NotEqualStencilFunc,
+      stencilFail: THREE.ReplaceStencilOp, stencilZFail: THREE.ReplaceStencilOp, stencilZPass: THREE.ReplaceStencilOp,
+    });
+    const cap = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6), capMat);
+    cap.renderOrder = ro + 1;
+    cap.raycast = () => {};
+    cap.onAfterRender = (r) => r.clearStencil();
+    world.add(cap);
+    tag(cap, layer, { zone: as.zone.id });
+    section.caps.push(cap);
+  });
+  // on-screen helper: outline of the cutting plane (hidden by "Hide UI for capture")
+  const s = Math.max(as.d.W, as.Htot) * 0.95;
+  const g = new THREE.BufferGeometry().setFromPoints([[-s, -s], [s, -s], [s, s], [-s, s], [-s, -s]].map(([x, y]) => new THREE.Vector3(x, y, 0)));
+  const helper = new THREE.Line(g, new THREE.LineBasicMaterial({ color: BRAND.primary, transparent: true, opacity: 0.85, depthTest: false }));
+  helper.renderOrder = 50;
+  helper.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(as.xW, as.yW, as.zW));
+  world.add(helper);
+  tag(helper, null, { helper: true, when: () => state.mode === '3d' });
+  section.helper = helper;
+  updateSectionPlane();
+  applyVisibility();
+}
+function updateSectionPlane() {
+  const as = section.as; if (!as) return;
+  const C = cutPoint(as);
+  sectionPlane.setFromNormalAndCoplanarPoint(as.zW.clone().negate(), C);
+  section.caps.forEach((c) => { c.position.copy(C); c.lookAt(C.clone().sub(sectionPlane.normal)); });
+  if (section.helper) section.helper.position.copy(C).addScaledVector(as.yW, as.v0 + as.Htot / 2 + 2 * state.explode * EXPLODE_STEP).addScaledVector(as.zW, 0.0006);
+  requestRender();
+}
+
+/* =====================================================================
+   14. FLAT SYSTEM DIAGRAM (orthographic one-line schematic)
+   breaker -> dimmer -> power supply -> tape, one row per zone.
+   Uses the same layer & zone toggles as the 3D model.
+   ===================================================================== */
+const SCHEM = { rowH: 1.55, colBreaker: -8.3, colDim: -3.9, colPsu: 0.7, tapeX0: 4.2, tapeX1: 9.7 };
+const sMat = (color) => new THREE.MeshBasicMaterial({ color });
+function rrectGeo(w, h, r) {
+  const s = new THREE.Shape(), x = -w / 2, y = -h / 2;
+  s.moveTo(x + r, y); s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r);
+  s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r);
+  s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y);
+  return new THREE.ShapeGeometry(s, 6);
+}
+function sAdd(obj, layer, zone = null, extra = {}) { schemRoot.add(obj); tag(obj, layer, Object.assign({ zone }, extra)); return obj; }
+function sBlock(cx, cy, w, h, border, layer, zone) {
+  const g = new THREE.Group();
+  const outer = new THREE.Mesh(rrectGeo(w, h, 0.16), sMat(border));
+  const inner = new THREE.Mesh(rrectGeo(w - 0.09, h - 0.09, 0.12), sMat('#ffffff'));
+  inner.position.z = 0.01; g.add(outer, inner);
+  g.position.set(cx, cy, 0);
+  return sAdd(g, layer, zone);
+}
+function sPolyline(pts, width, color, layer, zone, arrow = false) {
+  const g = new THREE.Group(), mat = sMat(color);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], len = Math.hypot(x1 - x0, y1 - y0);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(len + width, width), mat);
+    m.position.set((x0 + x1) / 2, (y0 + y1) / 2, 0); m.rotation.z = Math.atan2(y1 - y0, x1 - x0);
+    g.add(m);
+  }
+  if (arrow) {
+    const [x0, y0] = pts[pts.length - 2], [x1, y1] = pts[pts.length - 1], a = Math.atan2(y1 - y0, x1 - x0), s = width * 2.6;
+    const tri = new THREE.Shape(); tri.moveTo(0, 0); tri.lineTo(-s * 1.4, s); tri.lineTo(-s * 1.4, -s); tri.closePath();
+    const t = new THREE.Mesh(new THREE.ShapeGeometry(tri), mat);
+    t.position.set(x1, y1, 0.005); t.rotation.z = a; g.add(t);
+  }
+  g.position.z = -0.05;
+  return sAdd(g, layer, zone);
+}
+function sText(x, y, text, size, extra = {}) {
+  return addLabel(Object.assign({ kind: 'text', space: 'schem', anchor: [x, y, 0.2], text, worldSize: size }, extra));
+}
+
+function buildSchematic() {
+  const S = SCHEM, n = ZONES.length, top = (n - 1) / 2 * S.rowH, rows = ZONES.map((z, i) => top - i * S.rowH);
+  const LINE = COLORS.lineVoltage, wLine = 0.075, wLV = 0.06;
+  const hdrY = top + 1.0;
+  [['SOURCE', S.colBreaker], ['CONTROL', S.colDim], ['POWER', S.colPsu], ['LIGHTING', (S.tapeX0 + S.tapeX1) / 2]].forEach(([t, x]) =>
+    sText(x, hdrY, t, 0.2, { weight: 700, muted: true, layer: 'labels-callouts' }));
+
+  // breaker panel
+  const bh = n * S.rowH - 0.3, bw = 2.3;
+  sBlock(S.colBreaker, 0, bw, bh, '#3a4049', 'panel', null);
+  sText(S.colBreaker, bh / 2 - 0.42, BREAKER.label, 0.25, { weight: 700, ink: true, layer: 'panel' });
+  sText(S.colBreaker, bh / 2 - 0.78, '120V AC', 0.19, { ink: true, muted: true, layer: 'panel' });
+  for (let k = -3; k <= 3; k++) {
+    const accent = k === 0;
+    const hnd = new THREE.Mesh(rrectGeo(0.62, 0.2, 0.05), sMat(accent ? BRAND.accent : '#3a4049'));
+    hnd.position.set(S.colBreaker - 0.2, -k * 0.38 - 0.2, 0.03);
+    sAdd(hnd, 'panel');
+  }
+  sText(S.colBreaker + 0.42, -0.2, '15A', 0.2, { weight: 700, ink: true, align: 'left', layer: 'panel' });
+
+  // feed bus
+  const busX = S.colBreaker + bw / 2 + 0.7, dimL = S.colDim - 1.0;
+  sPolyline([[S.colBreaker + bw / 2, -0.2], [busX, -0.2]], wLine, LINE, 'wire-line');
+  sPolyline([[busX, rows[0]], [busX, rows[n - 1]]], wLine, LINE, 'wire-line');
+  sText((S.colBreaker + bw / 2 + busX) / 2 + 0.05, 0.12, BREAKER.gauge, 0.15, { muted: true, layer: 'labels-wires', requires: ['wire-line'] });
+
+  ZONES.forEach((z, i) => {
+    const y = rows[i], P = PROFILES[z.profile];
+    // branch from bus to dimmer
+    sPolyline([[busX, y], [dimL, y]], wLine, LINE, 'wire-line', z.id, true);
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.085, 16), sMat(LINE)); dot.position.set(busX, y, 0.02); sAdd(dot, 'wire-line', z.id);
+    // dimmer
+    sBlock(S.colDim, y, 2.0, 1.0, z.color, 'dimmers', z.id);
+    sText(S.colDim, y + 0.17, `${z.code} Dimmer`, 0.23, { weight: 700, ink: true, layer: 'dimmers', zone: z.id });
+    sText(S.colDim, y - 0.19, z.dimmer.type, 0.18, { ink: true, muted: true, layer: 'dimmers', zone: z.id });
+    // switched leg (line voltage) dimmer -> PSU
+    const legX0 = S.colDim + 1.0, legX1 = S.colPsu - 1.15;
+    sPolyline([[legX0, y], [legX1, y]], wLine, lineLegColor(z).getStyle(), 'wire-line', z.id, true);
+    sText((legX0 + legX1) / 2, y + 0.24, `${z.gauge.line} · 120V`, 0.15, { muted: true, layer: 'labels-wires', zone: z.id, requires: ['wire-line'] });
+    sText((legX0 + legX1) / 2, y - 0.24, fmtApprox(z.lineWire.length), 0.15, { muted: true, layer: 'labels-wires', zone: z.id, requires: ['wire-line'] });
+    // power supply
+    sBlock(S.colPsu, y, 2.3, 1.0, z.color, 'psu', z.id);
+    sText(S.colPsu, y + 0.17, `${z.code} Power supply`, 0.22, { weight: 700, ink: true, layer: 'psu', zone: z.id });
+    sText(S.colPsu, y - 0.19, `${z.psu.watts} · ${z.psu.volts}`, 0.18, { ink: true, muted: true, layer: 'psu', zone: z.id });
+    // low voltage PSU -> tape
+    const lvX0 = S.colPsu + 1.15, lvX1 = S.tapeX0 - 0.08;
+    sPolyline([[lvX0, y], [lvX1, y]], wLV, z.color, 'wire-lv', z.id, true);
+    const lvLen = z.lvWires.reduce((m, w) => Math.max(m, w.length), 0);
+    sText((lvX0 + lvX1) / 2, y + 0.24, `${z.gauge.lv}`, 0.15, { muted: true, layer: 'labels-wires', zone: z.id, requires: ['wire-lv'] });
+    sText((lvX0 + lvX1) / 2, y - 0.24, `24V DC · ${fmtApprox(lvLen)}`, 0.15, { muted: true, layer: 'labels-wires', zone: z.id, requires: ['wire-lv'] });
+    // channel + tape + end caps
+    const tw = S.tapeX1 - S.tapeX0, tcx = (S.tapeX0 + S.tapeX1) / 2;
+    const ch = new THREE.Mesh(rrectGeo(tw, 0.36, 0.06), sMat('#c3c9d0')); ch.position.set(tcx, y, 0); sAdd(ch, 'channels', z.id);
+    const tapeMat = sMat(COLORS.chip); lightMats.schemTape.push(tapeMat);
+    const bar = new THREE.Mesh(new THREE.PlaneGeometry(tw - 0.16, 0.15), tapeMat); bar.position.set(tcx, y, 0.02);
+    sAdd(bar, 'tape', z.id);
+    const dots = new THREE.Group(), dotMat = sMat('#ffffff');
+    for (let x = S.tapeX0 + 0.2; x < S.tapeX1 - 0.12; x += 0.24) { const d = new THREE.Mesh(new THREE.PlaneGeometry(0.075, 0.075), dotMat); d.position.set(x, y, 0.03); dots.add(d); }
+    dotMat.transparent = true; dotMat.opacity = 0.75;
+    sAdd(dots, 'tape', z.id);
+    [S.tapeX0, S.tapeX1].forEach((x) => { const c = new THREE.Mesh(rrectGeo(0.1, 0.42, 0.03), sMat('#6b737d')); c.position.set(x, y, 0.04); sAdd(c, 'hardware', z.id); });
+    sText(S.tapeX0, y + 0.42, `${z.code} · ${z.name}`, 0.22, { weight: 700, align: 'left', layer: 'labels-callouts', zone: z.id, color: z.color });
+    sText(S.tapeX1, y + 0.42, `${fmtLen(z.totalLen)}${z.runs.length > 1 ? ` · ${z.runs.length} runs` : ''}`, 0.17, { align: 'right', muted: true, layer: 'labels-callouts', zone: z.id });
+    sText(S.tapeX0, y - 0.4, P.name, 0.15, { align: 'left', muted: true, layer: 'labels-callouts', zone: z.id });
+    sText(S.tapeX1, y - 0.4, () => `${state.cct}K · ${Math.round(state.dim * 100)}%`, 0.15, { align: 'right', muted: true, layer: 'labels-callouts', zone: z.id, requires: ['tape'] });
+  });
+
+  // title & legend
+  const x0 = S.colBreaker - bw / 2;
+  sText(x0, top + 1.95, `${BRAND.product} — System One-Line Diagram`, 0.36, { weight: 700, align: 'left', layer: 'labels-callouts' });
+  sText(x0, top + 1.5, `${BRAND.name} · Power flow: breaker → dimmer → power supply → LED tape`, 0.2, { align: 'left', muted: true, layer: 'labels-callouts' });
+  const ly = -top - 1.1;
+  sPolyline([[x0, ly], [x0 + 0.9, ly]], wLine, LINE, 'labels-callouts');
+  sText(x0 + 1.1, ly, 'Line voltage · 120V AC', 0.17, { align: 'left', layer: 'labels-callouts' });
+  ZONES.forEach((z, i) => sPolyline([[x0 + 4.4 + i * 0.2, ly], [x0 + 4.58 + i * 0.2, ly]], wLV, z.color, 'labels-callouts'));
+  sText(x0 + 4.45 + n * 0.2, ly, 'Low voltage · 24V DC (zone color)', 0.17, { align: 'left', layer: 'labels-callouts' });
+  SCHEM.bounds = { x0: x0 - 0.3, x1: S.tapeX1 + 0.4, y0: ly - 0.5, y1: top + 2.3 };
+}
+
+/* =====================================================================
+   15. CAMERA PRESETS & SAVED VIEWS
+   A "view" = { mode, type, target, theta, phi, radius, zoom, fov }
+   ===================================================================== */
+const rig = new OrbitRig(glCanvas);
+let tween = null;
+let stashed3DView = null;
+
+function getView() {
+  const cam = rig.camera;
+  return {
+    mode: state.mode, type: cam.isPerspectiveCamera ? 'persp' : 'ortho',
+    target: rig.target.toArray(), theta: rig.theta, phi: rig.phi, radius: rig.radius,
+    zoom: cam.zoom, fov: perspCam.fov,
+  };
+}
+function setFov(fov) { state.fov = fov; perspCam.fov = fov; perspCam.updateProjectionMatrix(); }
+function setView(v) {
+  tween = null;
+  const mode = v.mode || '3d';
+  if (mode !== state.mode) setMode(mode, { keepView: true });
+  if (mode === 'schem') {
+    rig.camera = schemCam; rig.target.fromArray(v.target); rig.theta = 0; rig.phi = Math.PI / 2; rig.radius = 10;
+    schemCam.zoom = v.zoom || 1; schemCam.updateProjectionMatrix();
+  } else {
+    const cam = v.type === 'ortho' ? orthoCam : perspCam;
+    rig.camera = cam;
+    rig.target.fromArray(v.target); rig.theta = v.theta; rig.phi = v.phi;
+    rig.radius = v.type === 'ortho' ? 30 : (v.radius || 8);
+    if (v.type === 'ortho') { cam.zoom = v.zoom || 1; cam.updateProjectionMatrix(); }
+    else if (v.fov) setFov(v.fov);
+  }
+  rig.update();
+  syncUI();
+}
+function animateTo(v, ms = 650) {
+  const cam = (v.mode || '3d') === 'schem' ? schemCam : (v.type === 'ortho' ? orthoCam : perspCam);
+  if ((v.mode || '3d') !== state.mode || cam !== rig.camera || ms <= 0) { setView(v); return; }
+  const from = getView();
+  let dT = v.theta - from.theta;
+  dT = (((dT + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  tween = { t0: performance.now(), ms, from, to: v, dT };
+}
+function stepTween(now) {
+  const { from: f, to: t, dT } = tween, k = easeInOut(clamp((now - tween.t0) / tween.ms, 0, 1));
+  rig.target.fromArray(f.target).lerp(v3(t.target), k);
+  rig.theta = f.theta + dT * k; rig.phi = lerp(f.phi, t.phi, k);
+  const cam = rig.camera;
+  if (cam.isPerspectiveCamera) {
+    rig.radius = f.radius * Math.pow((t.radius || f.radius) / f.radius, k);
+    if (t.fov) { perspCam.fov = lerp(f.fov, t.fov, k); perspCam.updateProjectionMatrix(); state.fov = perspCam.fov; }
+  } else { cam.zoom = f.zoom * Math.pow((t.zoom || f.zoom) / f.zoom, k); cam.updateProjectionMatrix(); }
+  rig.update();
+  if (k >= 1) { tween = null; syncUI(); }
+}
+/** Close-up looking at the cut face of the selected assembly. */
+function sectionCloseupView() {
+  const as = selectedAssembly(), ex = state.explode * EXPLODE_STEP;
+  const C = cutPoint(as).addScaledVector(as.yW, as.v0 + as.Htot * 0.5 + 2 * ex);
+  const roomCenter = new THREE.Vector3(3, 1.35, 2.2);
+  const out = as.xW.clone(); if (out.dot(roomCenter.clone().sub(C)) < 0) out.negate();
+  const k = 1 + state.explode * 1.6;
+  const off = as.zW.clone().multiplyScalar(0.17 * k).addScaledVector(out, 0.1 * k).addScaledVector(as.yW, 0.06 * k);
+  const r = off.length();
+  return { mode: '3d', type: 'persp', target: C.toArray(), radius: r, phi: Math.acos(clamp(off.y / r, -1, 1)), theta: Math.atan2(off.x, off.z), fov: 35 };
+}
+function applyPreset(id) {
+  const p = CAMERA_PRESETS.find((c) => c.id === id); if (!p) return;
+  if (state.mode !== '3d') setMode('3d');
+  if (p.dynamic) {
+    if (!state.section) { state.section = true; applySection(); }
+    animateTo(sectionCloseupView(), 750);
+  } else animateTo(Object.assign({ mode: '3d' }, p.view));
+  state.viewName = p.label;
+  updateBadge(); syncUI();
+}
+function setMode(mode, { keepView = false } = {}) {
+  if (mode === state.mode) return;
+  tween = null;
+  if (mode === 'schem') {
+    stashed3DView = getView();
+    state.mode = 'schem';
+    rig.enableRotate = false;
+    if (!keepView) { fitSchematic(); state.viewName = 'System diagram'; }
+  } else {
+    state.mode = '3d';
+    rig.enableRotate = true;
+    if (!keepView) { setView(stashed3DView || Object.assign({ mode: '3d' }, CAMERA_PRESETS[0].view)); state.viewName = stashed3DView ? state.viewName === 'System diagram' ? 'Custom' : state.viewName : 'Perspective'; }
+  }
+  applyVisibility(); updateBadge(); syncUI(); requestRender();
+}
+function fitSchematic() {
+  const b = SCHEM.bounds, aspect = viewW / viewH;
+  rig.camera = schemCam; rig.theta = 0; rig.phi = Math.PI / 2; rig.radius = 10;
+  rig.target.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, 0);
+  schemCam.zoom = Math.min((SCHEM_H * aspect) / ((b.x1 - b.x0) * 1.04), SCHEM_H / ((b.y1 - b.y0) * 1.06));
+  schemCam.updateProjectionMatrix();
+  rig.update();
+}
+function saveSlot(i) {
+  const input = document.querySelector(`.slot[data-slot="${i}"] input`);
+  const name = (input && input.value.trim()) || (state.viewName !== 'Custom' ? state.viewName : `View ${i + 1}`);
+  state.slots[i] = { name, view: getView() };
+  toast(`Saved “${name}” to slot ${i + 1}`);
+  syncUI();
+}
+function gotoSlot(i) {
+  const s = state.slots[i]; if (!s) { toast(`Slot ${i + 1} is empty`); return; }
+  animateTo(s.view);
+  state.viewName = s.name; updateBadge();
+}
+function updateBadge() {
+  const mode = state.mode === 'schem' ? 'Diagram' : (rig.camera === orthoCam ? 'Orthographic' : 'Perspective');
+  $('#viewBadge').innerHTML = `${escapeHtml(state.viewName)}<small>${mode}</small>`;
+}
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* =====================================================================
+   16. UI (side panel) — generated from LAYERS / ZONES / CAMERA_PRESETS
+   ===================================================================== */
+let soloState = null;      // { group, saved: {layerId: bool} }
+
+function buildUI() {
+  const root = document.documentElement.style;
+  root.setProperty('--brand', BRAND.primary); root.setProperty('--brand-ink', BRAND.primaryInk);
+  root.setProperty('--accent', BRAND.accent); root.setProperty('--ui-font', BRAND.font);
+  $('#appSub').textContent = `${BRAND.name} · ${BRAND.product}`;
+
+  const sec = (title, html, open = true) => `<details class="sec"${open ? ' open' : ''}><summary>${title}</summary><div class="sec-body">${html}</div></details>`;
+  const slider = (id, label, min, max, step = 1) => `<div class="row"><span style="width:78px">${label}</span><input type="range" id="${id}" min="${min}" max="${max}" step="${step}"><span class="val" id="${id}Val"></span></div>`;
+  const chk = (attrs, label) => `<label class="chk"><input type="checkbox" ${attrs}><span>${label}</span></label>`;
+
+  const groupsHtml = LAYER_GROUPS.map((g) => `
+    <div class="grp" data-group="${g.id}">
+      <div class="grp-head"><strong>${g.label}</strong>
+        <button class="btn mini" data-gact="show">Show all</button><button class="btn mini" data-gact="hide">Hide all</button><button class="btn mini" data-gact="solo">Solo</button>
+      </div>
+      <div class="grp-items">
+        ${LAYERS.filter((l) => l.group === g.id).map((l) => chk(`data-layer="${l.id}"`, l.label)).join('')}
+        ${g.id === 'architecture' ? slider('xray', 'X-ray', 0, 100) + chk('id="edges"', 'Outline edges') : ''}
+      </div>
+    </div>`).join('');
+
+  const zonesHtml = `<div class="row"><button class="btn mini" id="zonesAll">All zones</button><span class="note" style="margin:0">“Only” isolates a zone (click again to restore)</span></div>` +
+    ZONES.map((z) => `<div class="zone-row"><label><input type="checkbox" data-zone="${z.id}"><span class="swatch" style="background:${z.color}"></span><span><b>${z.code}</b> ${z.name}</span></label><button class="btn mini" data-zonly="${z.id}">Only</button></div>`).join('');
+
+  const slotsHtml = Array.from({ length: SAVED_SLOTS }, (_, i) => `
+    <div class="slot" data-slot="${i}"><span class="num">${i + 1}</span><input type="text" placeholder="Empty — name, then Save">
+      <button class="btn mini" data-act="save">Save</button><button class="btn mini" data-act="go">Go</button><button class="btn mini" data-act="clear" title="Clear slot">×</button></div>`).join('');
+
+  $('#panelBody').innerHTML =
+    sec('View', `
+      <div class="seg" id="modeSeg"><button data-mode="3d">3D model</button><button data-mode="schem">Flat system diagram</button></div>
+      <div class="sub">Camera presets</div>
+      <div class="grid2" id="presets">${CAMERA_PRESETS.map((p) => `<button class="btn" data-preset="${p.id}">${p.label}</button>`).join('')}</div>
+      ${slider('fov', 'Lens (FOV)', 15, 75)}
+      <div class="row"><span style="width:78px">Frame</span><select id="aspect">
+        <option value="fill">Fill window</option><option value="16:9">16:9 widescreen slide</option><option value="4:3">4:3 standard slide</option><option value="1:1">1:1 square</option></select></div>
+      <div class="sub">Saved views <span style="font-weight:400;text-transform:none;letter-spacing:0">· in memory · keys 1–6, Shift+1–6 saves</span></div>
+      <div id="slots">${slotsHtml}</div>`) +
+    sec('Layers', `<div class="row"><button class="btn mini" id="layersAll">Show everything</button><button class="btn mini" id="layersReset">Reset to defaults</button></div>${groupsHtml}`) +
+    sec('Zones', zonesHtml) +
+    sec('Lighting', `
+      ${chk('id="glow"', 'Light glow (tape on)')}
+      ${slider('brightness', 'Brightness', 0, 200)}
+      ${slider('dim', 'Dim level', 0, 100)}
+      <div class="sub">Color temperature</div>
+      <div class="seg" id="cctSeg">${Object.keys(CCT_COLORS).map((k) => `<button data-cct="${k}">${k}K</button>`).join('')}</div>`) +
+    sec('Detail · exploded & cross-section', `
+      <div class="row"><select id="assembly">${assemblies.map((a, i) => `<option value="${i}">${escapeHtml(a.name)}</option>`).join('')}</select></div>
+      ${slider('explode', 'Exploded', 0, 100)}
+      ${chk('id="section"', 'Cross-section (clip through the channel)')}
+      ${slider('cutPos', 'Cut position', 3, 97)}
+      <div class="grid2"><button class="btn" id="closeupBtn">Close-up view</button><button class="btn" id="detailReset">Reset detail</button></div>
+      <p class="note">Exploded view separates clips, channel, tape and diffuser away from the mounting surface. The cut face is filled so the profile reads clearly.</p>`, false) +
+    sec('Labels', `
+      ${slider('labelScale', 'Label size', 60, 180)}
+      ${chk('data-layer="labels-callouts"', 'Component callouts')}
+      ${chk('data-layer="labels-dims"', 'Dimensions')}
+      ${chk('data-layer="labels-wires"', 'Wire label mode (gauge & length)')}
+      <p class="note">Labels are drawn over the 3D view and included in PNG exports. Gauges and lengths are placeholders (edit <code>ZONES[].gauge</code>).</p>`, false) +
+    sec('Render', `
+      <div class="sub" style="margin-top:0">Background</div>
+      <div class="bgs" id="bgs">${Object.entries(BACKGROUNDS).map(([k, b]) => `<button data-bg="${k}" style="${b.color ? `background:${b.color};color:${b.theme === 'dark' ? '#fff' : '#333'}` : 'background:repeating-conic-gradient(#e2e5e9 0 25%,#fff 0 50%) 0 0/12px 12px'}">${b.label}</button>`).join('')}</div>
+      ${chk('id="shadows"', 'Soft shadows')}
+      ${chk('checked disabled', 'Anti-aliasing (always on)')}`, false);
+
+  $('#panelFoot').innerHTML = `
+    <div class="row" style="margin-top:0"><span style="width:78px;font-weight:600">Export</span>
+      <div class="seg grow" id="scaleSeg"><button data-scale="1">1×</button><button data-scale="2">2×</button><button data-scale="4">4×</button></div></div>
+    ${chk('id="exportTransparent"', 'Transparent background')}
+    ${chk('id="hideUI"', 'Hide UI for capture <span class="kbd">H</span>')}
+    <button class="btn primary" id="exportBtn">Export PNG</button>
+    <div class="row" style="margin-top:6px"><button class="btn grow" id="exportAllBtn">Export all saved views</button></div>
+    <p class="note" id="exportInfo"></p>`;
+
+  wireUI();
+}
+
+function wireUI() {
+  const panel = $('#panel');
+  panel.addEventListener('input', (e) => {
+    const t = e.target, v = Number(t.value);
+    switch (t.id) {
+      case 'fov': setFov(v); rig.update(); break;
+      case 'xray': state.xray = v / 100; applyXray(); break;
+      case 'brightness': state.brightness = v / 100; updateLighting(); break;
+      case 'dim': state.dim = v / 100; updateLighting(); break;
+      case 'explode': state.explode = v / 100; applyExplode(); break;
+      case 'cutPos': state.cutPos = v / 100; updateSectionPlane(); break;
+      case 'labelScale': state.labelScale = v / 100; break;
+      default: return;
+    }
+    syncValues(); requestRender();
+  });
+  panel.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.dataset.layer) { layerOn[t.dataset.layer] = t.checked; soloState = null; onLayersChanged(); return; }
+    if (t.dataset.zone) { zoneOn[t.dataset.zone] = t.checked; onLayersChanged(); return; }
+    switch (t.id) {
+      case 'edges': state.edges = t.checked; applyXray(); break;
+      case 'glow': state.glow = t.checked; updateLighting(); break;
+      case 'section': state.section = t.checked; applySection(); break;
+      case 'assembly': state.selected = Number(t.value); applyExplode(); applySection(); break;
+      case 'shadows': state.shadows = t.checked; applyShadows(); break;
+      case 'exportTransparent': state.exportTransparent = t.checked; break;
+      case 'hideUI': setHideUI(t.checked); break;
+      case 'aspect': state.aspect = t.value; layout(); break;
+      default: return;
+    }
+    syncUI(); requestRender();
+  });
+  panel.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    const d = b.dataset;
+    if (d.mode) { setMode(d.mode); return; }
+    if (d.preset) { applyPreset(d.preset); return; }
+    if (d.gact) { groupAction(b.closest('.grp').dataset.group, d.gact); return; }
+    if (d.zonly) { zoneOnly(d.zonly); return; }
+    if (d.cct) { state.cct = Number(d.cct); updateLighting(); syncUI(); return; }
+    if (d.bg) { state.bg = d.bg; applyBackground(); syncUI(); requestRender(); return; }
+    if (d.scale) { state.exportScale = Number(d.scale); syncUI(); return; }
+    if (d.act) {
+      const i = Number(b.closest('.slot').dataset.slot);
+      if (d.act === 'save') saveSlot(i); else if (d.act === 'go') gotoSlot(i);
+      else { state.slots[i] = null; b.closest('.slot').querySelector('input').value = ''; syncUI(); }
+      return;
+    }
+    switch (b.id) {
+      case 'zonesAll': ZONES.forEach((z) => (zoneOn[z.id] = true)); onLayersChanged(); break;
+      case 'layersAll': LAYERS.forEach((l) => (layerOn[l.id] = true)); soloState = null; onLayersChanged(); break;
+      case 'layersReset': LAYERS.forEach((l) => (layerOn[l.id] = l.on)); soloState = null; onLayersChanged(); break;
+      case 'closeupBtn': applyPreset('section'); break;
+      case 'detailReset': state.explode = 0; state.section = false; applyExplode(); applySection(); syncUI(); break;
+      case 'exportBtn': exportPNG(state.viewName); break;
+      case 'exportAllBtn': exportAllSaved(); break;
+    }
+  });
+  panel.addEventListener('keydown', (e) => {               // Enter in a slot name saves
+    if (e.key === 'Enter' && e.target.closest('.slot')) saveSlot(Number(e.target.closest('.slot').dataset.slot));
+  });
+  $('#panelTab').addEventListener('click', togglePanel);
+}
+
+function groupAction(gid, act) {
+  const ids = LAYERS.filter((l) => l.group === gid).map((l) => l.id);
+  if (act === 'solo') {
+    if (soloState && soloState.group === gid) { Object.assign(layerOn, soloState.saved); soloState = null; }
+    else {
+      const saved = soloState ? soloState.saved : Object.assign({}, layerOn);
+      const anyOn = ids.some((id) => saved[id]);
+      LAYERS.forEach((l) => { layerOn[l.id] = l.group === gid ? (anyOn ? saved[l.id] : true) : false; });
+      soloState = { group: gid, saved };
+    }
+  } else {
+    ids.forEach((id) => (layerOn[id] = act === 'show'));
+    soloState = null;
+  }
+  onLayersChanged();
+}
+function zoneOnly(id) {
+  const only = ZONES.every((z) => zoneOn[z.id] === (z.id === id));
+  ZONES.forEach((z) => (zoneOn[z.id] = only ? true : z.id === id));
+  onLayersChanged();
+}
+function onLayersChanged() { applyVisibility(); syncUI(); }
+
+function syncValues() {
+  const setVal = (id, text) => { const el = $('#' + id + 'Val'); if (el) el.textContent = text; };
+  setVal('fov', `${Math.round(state.fov)}°`);
+  setVal('xray', `${Math.round(state.xray * 100)}%`);
+  setVal('brightness', `${Math.round(state.brightness * 100)}%`);
+  setVal('dim', `${Math.round(state.dim * 100)}%`);
+  setVal('explode', `${Math.round(state.explode * 100)}%`);
+  setVal('cutPos', `${Math.round(state.cutPos * 100)}%`);
+  setVal('labelScale', `${Math.round(state.labelScale * 100)}%`);
+  const s = effectiveExportScale();
+  $('#exportInfo').textContent = `Output: ${Math.round(viewW * s)} × ${Math.round(viewH * s)} px · ${state.mode === 'schem' ? 'diagram' : 'current 3D view'}${s < state.exportScale ? ' (capped by GPU limit)' : ''}`;
+}
+function syncUI() {
+  if (!$('#modeSeg')) return;
+  document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === state.mode));
+  document.querySelectorAll('[data-layer]').forEach((el) => (el.checked = !!layerOn[el.dataset.layer]));
+  document.querySelectorAll('[data-zone]').forEach((el) => (el.checked = !!zoneOn[el.dataset.zone]));
+  document.querySelectorAll('.grp').forEach((g) => g.querySelector('[data-gact="solo"]').classList.toggle('active', !!soloState && soloState.group === g.dataset.group));
+  document.querySelectorAll('[data-zonly]').forEach((b) => b.classList.toggle('active', ZONES.every((z) => zoneOn[z.id] === (z.id === b.dataset.zonly))));
+  document.querySelectorAll('#cctSeg button').forEach((b) => b.classList.toggle('on', Number(b.dataset.cct) === state.cct));
+  document.querySelectorAll('#bgs button').forEach((b) => b.classList.toggle('on', b.dataset.bg === state.bg));
+  document.querySelectorAll('#scaleSeg button').forEach((b) => b.classList.toggle('on', Number(b.dataset.scale) === state.exportScale));
+  document.querySelectorAll('#presets button').forEach((b) => b.classList.toggle('active', CAMERA_PRESETS.find((p) => p.id === b.dataset.preset).label === state.viewName && state.mode === '3d'));
+  const set = (id, prop, val) => { const el = $('#' + id); if (el && el[prop] !== val) el[prop] = val; };
+  set('fov', 'value', String(Math.round(state.fov)));
+  set('xray', 'value', String(Math.round(state.xray * 100)));
+  set('edges', 'checked', state.edges);
+  set('glow', 'checked', state.glow);
+  set('brightness', 'value', String(Math.round(state.brightness * 100)));
+  set('dim', 'value', String(Math.round(state.dim * 100)));
+  set('assembly', 'value', String(state.selected));
+  set('explode', 'value', String(Math.round(state.explode * 100)));
+  set('section', 'checked', state.section);
+  set('cutPos', 'value', String(Math.round(state.cutPos * 100)));
+  set('labelScale', 'value', String(Math.round(state.labelScale * 100)));
+  set('shadows', 'checked', state.shadows);
+  set('exportTransparent', 'checked', state.exportTransparent);
+  set('hideUI', 'checked', state.hideUI);
+  set('aspect', 'value', state.aspect);
+  $('#fov').disabled = state.mode !== '3d' || rig.camera !== perspCam;
+  document.querySelectorAll('.slot').forEach((el) => {
+    const i = Number(el.dataset.slot), s = state.slots[i];
+    el.classList.toggle('filled', !!s);
+    el.querySelector('[data-act="go"]').disabled = !s;
+    const input = el.querySelector('input');
+    if (s && document.activeElement !== input && !input.value) input.value = s.name;
+  });
+  $('#exportAllBtn').disabled = !state.slots.some(Boolean);
+  syncValues();
+}
+
+function applyXray() {
+  archMats.forEach((m) => {
+    const o = m.userData.xray ? clamp(state.xray * m.userData.scale, 0, 1) : 1;
+    const transparent = o < 0.995;
+    if (m.transparent !== transparent) m.needsUpdate = true;
+    m.transparent = transparent; m.opacity = o; m.depthWrite = !transparent;
+  });
+  archEdgeMat.opacity = clamp(0.4 + state.xray * 0.45, 0, 0.9);
+  archEdgeMat.visible = state.edges;
+  requestRender();
+}
+function applyBackground(forceTransparent = false) {
+  const bg = BACKGROUNDS[state.bg], transparent = forceTransparent || bg.color === null;
+  if (transparent) renderer.setClearColor(0x000000, 0); else renderer.setClearColor(bg.color, 1);
+  const stage = $('#stage');
+  stage.classList.toggle('checker', bg.color === null);
+  stage.style.backgroundColor = bg.color || '';
+}
+function applyShadows() {
+  renderer.shadowMap.enabled = state.shadows;
+  keyLight.castShadow = state.shadows;
+  scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => (m.needsUpdate = true)); });
+  requestRender();
+}
+function setHideUI(on) {
+  state.hideUI = on;
+  document.body.classList.toggle('capture', on);
+  const hint = $('#captureHint');
+  if (on) { hint.classList.add('show'); clearTimeout(setHideUI._t); setHideUI._t = setTimeout(() => hint.classList.remove('show'), 2600); }
+  else hint.classList.remove('show');
+  applyVisibility(); syncUI();
+}
+function togglePanel() {
+  const c = $('#app').classList.toggle('collapsed');
+  $('#panelTab').textContent = c ? '⟨' : '⟩';
+}
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+/* =====================================================================
+   17. EXPORT — PNG at 1×/2×/4× of the current view, labels composited,
+   optional transparent background. File name = brand_view_timestamp.
+   ===================================================================== */
+function maxCanvasDim() {
+  const gl = renderer.getContext();
+  const rb = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), vp = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+  return Math.min(rb, vp[0], vp[1], 16384);
+}
+function effectiveExportScale() {
+  const lim = maxCanvasDim();
+  return Math.min(state.exportScale, lim / Math.max(viewW, viewH, 1));
+}
+function renderTo(cam) { if (state.mode === 'schem') renderer.render(schemScene, schemCam); else renderer.render(scene, cam); }
+
+async function renderPNGBlob() {
+  const s = effectiveExportScale(), prevPR = renderer.getPixelRatio();
+  const transparent = state.exportTransparent || BACKGROUNDS[state.bg].color === null;
+  try {
+    renderer.setPixelRatio(s);                          // resizes the drawing buffer only (CSS size unchanged)
+    applyBackground(transparent);
+    renderTo(rig.camera);
+    const out = makeCanvas(glCanvas.width, glCanvas.height), ctx = out.getContext('2d');
+    ctx.drawImage(glCanvas, 0, 0);
+    ctx.setTransform(out.width / viewW, 0, 0, out.height / viewH, 0, 0);
+    drawOverlay(ctx, viewW, viewH, rig.camera);
+    return { blob: await new Promise((res) => out.toBlob(res, 'image/png')), s, w: out.width, h: out.height };
+  } finally {
+    renderer.setPixelRatio(prevPR);
+    applyBackground(false);
+    renderFrame();
+  }
+}
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+async function exportPNG(viewName, { quiet = false } = {}) {
+  const { blob, s, w, h } = await renderPNGBlob();
+  if (!blob) { toast('Export failed — try a smaller scale'); return; }
+  const sx = Number.isInteger(s) ? s : s.toFixed(1);
+  const name = `${slug(BRAND.name)}_${slug(viewName || 'view')}_${timestamp()}_${sx}x.png`;
+  downloadBlob(blob, name);
+  if (!quiet) toast(`Exported ${w} × ${h} px — ${name}`);
+  return name;
+}
+async function exportAllSaved() {
+  const filled = state.slots.map((s, i) => ({ s, i })).filter((o) => o.s);
+  if (!filled.length) { toast('No saved views yet — use Save in the View section'); return; }
+  const keep = getView(), keepName = state.viewName;
+  for (const { s, i } of filled) {
+    setView(s.view); state.viewName = s.name; updateBadge();
+    await exportPNG(s.name || `view-${i + 1}`, { quiet: true });
+    await new Promise((r) => setTimeout(r, 450));       // give the browser time between downloads
+  }
+  setView(keep); state.viewName = keepName; updateBadge();
+  toast(`Exported ${filled.length} saved view${filled.length > 1 ? 's' : ''}`);
+}
+
+/* =====================================================================
+   18. LAYOUT, RESIZE & RENDER LOOP
+   ===================================================================== */
+let viewW = 1, viewH = 1, needsRender = true;
+function requestRender() { needsRender = true; }
+function layout() {
+  const vp = $('#viewport'), W = Math.max(1, vp.clientWidth), H = Math.max(1, vp.clientHeight);
+  let w = W, h = H;
+  if (state.aspect !== 'fill') {
+    const [a, b] = state.aspect.split(':').map(Number), r = a / b;
+    if (W / H > r) { h = H; w = Math.round(H * r); } else { w = W; h = Math.round(W / r); }
+  }
+  const stage = $('#stage');
+  Object.assign(stage.style, { width: w + 'px', height: h + 'px', left: Math.round((W - w) / 2) + 'px', top: Math.round((H - h) / 2) + 'px' });
+  const wasW = viewW;
+  viewW = w; viewH = h;
+  renderer.setSize(w, h, true);
+  const dpr = renderer.getPixelRatio();
+  overlayCanvas.width = Math.round(w * dpr); overlayCanvas.height = Math.round(h * dpr);
+  overlayCanvas.style.width = w + 'px'; overlayCanvas.style.height = h + 'px';
+  updateCameraAspect(w / h);
+  if (state.mode === 'schem' && wasW !== w && state.viewName === 'System diagram') fitSchematic();
+  if ($('#exportInfo')) syncValues();
+  requestRender();
+}
+function renderFrame() {
+  renderTo(rig.camera);
+  const dpr = renderer.getPixelRatio();
+  octx.setTransform(1, 0, 0, 1, 0, 0);
+  octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawOverlay(octx, viewW, viewH, rig.camera);
+}
+function loop(now) {
+  requestAnimationFrame(loop);
+  if (tween) { stepTween(now); needsRender = true; }
+  if (needsRender) { needsRender = false; renderFrame(); }
+}
+
+/* Double-click: re-center the orbit on the clicked point */
+const raycaster = new THREE.Raycaster();
+function shownInScene(o) { for (let p = o; p; p = p.parent) if (!p.visible) return false; return true; }
+glCanvas.addEventListener('dblclick', (e) => {
+  if (state.mode !== '3d') return;
+  const r = glCanvas.getBoundingClientRect();
+  raycaster.setFromCamera({ x: ((e.clientX - r.left) / r.width) * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1 }, rig.camera);
+  const hit = raycaster.intersectObjects(world.children, true).find((h) => h.object.isMesh && shownInScene(h.object) &&
+    !(h.object.material.transparent && h.object.material.opacity < 0.9));
+  if (!hit) return;
+  const cam = rig.camera, off = cam.position.clone().sub(hit.point), rr = off.length();
+  const v = getView();
+  v.target = hit.point.toArray();
+  if (cam.isPerspectiveCamera) { v.radius = rr; v.phi = Math.acos(clamp(off.y / rr, -1, 1)); v.theta = Math.atan2(off.x, off.z); }
+  animateTo(v, 450);
+  state.viewName = 'Custom'; updateBadge();
+});
+
+/* Keyboard shortcuts: H hide UI · Esc exit capture · P panel · E export · 1–6 recall · Shift+1–6 save */
+window.addEventListener('keydown', (e) => {
+  if (e.target.matches && e.target.matches('input[type=text], select, textarea')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'h' || (k === 'escape' && state.hideUI)) { setHideUI(!state.hideUI); e.preventDefault(); }
+  else if (k === 'p') togglePanel();
+  else if (k === 'e' && !e.ctrlKey && !e.metaKey) exportPNG(state.viewName);
+  else if (/^Digit[1-6]$/.test(e.code)) { const i = Number(e.code.slice(5)) - 1; if (e.shiftKey) saveSlot(i); else gotoSlot(i); }
+});
+
+/* =====================================================================
+   INIT
+   ===================================================================== */
+buildSystem();
+buildLabels();
+buildSchematic();
+buildUI();
+rig.onChange = requestRender;
+rig.onUser = () => { tween = null; if (state.viewName !== 'Custom' && state.mode === '3d') { state.viewName = 'Custom'; updateBadge(); syncUI(); } };
+applyXray();
+applyBackground();
+updateLighting();
+layout();
+new ResizeObserver(layout).observe($('#viewport'));
+window.addEventListener('resize', layout);
+setView(Object.assign({ mode: '3d' }, CAMERA_PRESETS[0].view));
+state.viewName = CAMERA_PRESETS[0].label;
+updateBadge(); syncUI(); applyVisibility();
+requestAnimationFrame(loop);
+
+// Handy for scripting screenshots from the browser console
+window.LEDViz = { state, ZONES, LAYERS, layerOn, zoneOn, getView, setView, applyPreset, setMode, exportPNG, renderPNGBlob, onLayersChanged, updateLighting, applyExplode, applySection };
+</script>
+</body>
+</html>
