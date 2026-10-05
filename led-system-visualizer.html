@@ -30,7 +30,8 @@
    16. UI (side panel)
    17. EXPORT
    18. LAYOUT, RESIZE & RENDER LOOP
-   19. TRAINING VISUALS (outline sections 3 & 4)  <- data in section 1b
+   19. TRAINING VISUALS (Intermediate sections 3 & 4)  <- data in section 1b
+   20. TRAINING VISUALS (Intermediate 5 & Advanced)    <- data in section 1c
 -->
 <style>
   :root {
@@ -545,6 +546,137 @@ const MISTAKES = [
   ['Forgetting end caps, clips, or joiners', 'Run the accessory list on every takeoff.', '4.3'],
   ['Ordering exact length, no allowance', 'Add waste for field adjustments and an extra piece.', '4.1 · 4.3'],
 ];
+
+/* =====================================================================
+   1c. TRAINING DATA — Intermediate section 5 and the Advanced session
+   ("Integration, profile matching, and control planning").
+   Everything here is illustrative. Replace values and [bracketed] text with
+   ilLumenate specs, tested pairings and part numbers.
+   ===================================================================== */
+/* Intermediate 5.1 — supply placement (wire runs, one-way, feet) */
+const PLACEMENT = { localFt: 5, remoteFt: 40 };
+
+/* Intermediate 5.2 / Advanced 3.2 — control types and protocols */
+const CONTROL_TYPES = [
+  ['ELV / TRIAC (phase-cut)', 'Residential and hospitality retrofits with existing wall dimmers', 'Dimmer and supply must be compatible. Always check the compatibility list.'],
+  ['0-10V', 'Simple commercial dimming', 'Needs a 0-10V-capable supply or driver'],
+  ['DMX512', 'Multi-zone, color, tunable white, pixel', 'Needs a DMX decoder or driver'],
+  ['DALI-2', 'Networked commercial control', 'Needs DALI-capable drivers and commissioning'],
+  ['PWM', 'Direct tape dimming', 'Match the controller to the tape type'],
+];
+const PROTOCOLS = [
+  ['Phase-cut (ELV/TRIAC)', 'Residential and hospitality retrofits using existing dimmers', 'Compatibility, minimum load, neutral'],
+  ['0-10V', 'Simple commercial dimming, single-channel', 'Sink-current limit on how many drivers one control can handle [controller sink rating]'],
+  ['DMX512', 'Multi-zone, color, tunable white, pixel', 'Addressing, termination, cabling'],
+  ['DALI-2', 'Commercial networks, addressable control', 'Needs DALI-compatible drivers and commissioning'],
+  ['PWM controller', 'Low-voltage tape directly', 'Match to tape type and check PWM frequency'],
+];
+const RECAP = [
+  ['Linear is designed by length and zone.', 'Not by fixture count.'],
+  ['Pick tape, profile, and diffuser as one system.', 'Optics and heat are decided together.'],
+  ['Four calculations.', 'Load, max run, feed method, and wire gauge.'],
+  ['Do your takeoff the same way every time.', 'Nine steps, every job.'],
+];
+
+/* Advanced 1.1 — phase-cut dimmer limits [your dimmer spec] */
+const DIMMER = { minLoadW: 10, ledMaxW: 150, incandescentW: 600, maxSupplies: 3, shortRunW: 6, supplyCountTest: 4 };
+const FAILURE_MODES = [
+  ['Flicker at low end', 'Below dimmer min load, or supply min dim level', 'Total load vs. dimmer minimum'],
+  ['Pops on or won’t dim down', 'Wrong dimming type, or load too small', 'Dimmer type vs. supply spec'],
+  ['Glows when off (ghosting)', 'Leakage current, no neutral', 'Neutral wiring, bleeder load'],
+  ['Dimmer trips or fails over time', 'Inrush from several supplies', 'Supplies-per-dimmer limit'],
+  ['Buzzing', 'Dimmer and supply interaction', 'Try a different compatible dimmer'],
+];
+
+/* Advanced 1.2 — dimming method vs tape type [your tested pairings] */
+const PWM = { lowHz: 240, highHz: 20000, specHz: '[your PWM frequency]' };
+const TAPE_METHODS = [
+  ['Resistor-based constant-voltage tape', 'CVR or PWM', 'Usually tolerant. Verify low-end behavior with CVR.', '[tested pairing]'],
+  ['Constant-current IC tape', 'PWM', 'CVR: dropout, steps, or no dimming. IC holds current until it drops out.', '[tested pairing]'],
+  ['Tunable white (2-channel) tape', '2-channel PWM controller / driver', 'Single-channel phase-cut: no CCT control, one channel unused.', '[tested pairing]'],
+];
+
+/* Advanced 1.3 — dim-to-warm vs tunable white */
+const DTW = { fullK: 3000, dimK: 1800, twMinK: 2700, twMaxK: 6500, product: '[your dim-to-warm product]' };
+const DTW_TABLE = [
+  ['Control inputs', 'One dimming input (phase-cut or 0-10V)', 'Two channels: brightness + CCT'],
+  ['Cost', 'Lower: standard dimmer', 'Higher: 2-ch controller, programming'],
+  ['Flexibility', 'Fixed warm-dim curve', 'Any CCT at any level'],
+  ['Best use', 'Phase-cut retrofits, residential', 'Hospitality, circadian, scenes'],
+  ['Programming', 'None', 'Scenes + a warm-dim curve to program'],
+];
+
+/* Advanced 2.1 — optics. pitch = LED spacing (mm), depth = LED-to-diffuser distance (mm) */
+const DIFFUSERS = { clear: { name: 'Clear', blur: 0.0, trans: 0.92 }, frosted: { name: 'Frosted', blur: 0.45, trans: 0.82 }, opal: { name: 'Opal', blur: 1.1, trans: 0.62 } };  // [measured transmission]
+const OPTICS_CASES = [
+  { label: '60 LED/m · 6 mm deep · clear', pitch: 16.7, depth: 6, diffuser: 'clear', fix: 'Deeper profile or a more opaque lens' },
+  { label: '60 LED/m · 6 mm deep · frosted', pitch: 16.7, depth: 6, diffuser: 'frosted', fix: 'More depth, opal lens, or denser tape' },
+  { label: '60 LED/m · 15 mm deep · opal', pitch: 16.7, depth: 15, diffuser: 'opal', fix: '' },
+  { label: '120 LED/m · 8 mm deep · frosted', pitch: 8.3, depth: 8, diffuser: 'frosted', fix: '' },
+  { label: 'COB tape · 4 mm deep · frosted', pitch: 2.0, depth: 4, diffuser: 'frosted', fix: '' },
+  { label: '60 LED/m · 15 mm deep · frosted', pitch: 16.7, depth: 15, diffuser: 'frosted', fix: '' },
+];
+
+/* Advanced 2.2 — thermal (illustrative temperatures; replace with your measurements) */
+const THERMAL = {
+  limitC: 70, // [tape max case temperature]
+  cases: [
+    ['High-output tape on wood, no channel', 82],
+    ['Same tape, enclosed in a plastic channel', 88],
+    ['Same tape in a shallow aluminum channel', 58],
+    ['Same tape in a deep aluminum channel', 50],
+    ['Deep aluminum, sealed cove (no airflow)', 66],
+  ],
+  maxWPerFt: [
+    ['Surface / shallow aluminum', '[4.4 W/ft]'],
+    ['Deep aluminum', '[6 W/ft]'],
+    ['Mud-in aluminum', '[5 W/ft]'],
+    ['Sealed / wet-location', '[3 W/ft]'],
+    ['Non-metal channel', '[2 W/ft]'],
+    ['Enclosed or insulated space', 'Derate [25%]'],
+  ],
+};
+
+/* Advanced 2.3 — profile selection matrix */
+const PROFILE_MATRIX = [
+  ['Under cabinet', 'Wood / laminate', 'Low–medium', 'Frosted', '[Surface profile]'],
+  ['Cove / soffit', 'Drywall ledge', 'Medium–high', 'Clear or frosted', '[Cove profile]'],
+  ['Ceiling reveal', 'Drywall (new build)', 'Medium', 'Opal', '[Mud-in profile]'],
+  ['Shadow-gap edge', 'Drywall ceiling', 'Medium', 'Opal', '[Knife-edge profile]'],
+  ['Shelving / casework', 'Wood edge', 'Low', 'Opal', '[Slim edge profile]'],
+  ['Shower / outdoor', 'Tile, stone, exterior', 'Low–medium', 'Opal, sealed', '[IP-rated profile]'],
+];
+
+/* Advanced 3.1 / 3.3 — zones, scenes and the DMX map.
+   type: 'single' (1 ch), 'tw' (2 ch), 'rgb' (3 ch), 'rgbw' (4 ch); count = fixtures/segments in the zone */
+const ADV_ZONES = [
+  { name: 'Living cove', lenFt: 20, wPerFt: 4.5, protocol: 'DMX512', type: 'tw', count: 1 },
+  { name: 'Kitchen under-cab', lenFt: 14, wPerFt: 3.0, protocol: 'DMX512', type: 'single', count: 1 },
+  { name: 'Hall toe-kick', lenFt: 12, wPerFt: 2.2, protocol: 'DMX512', type: 'single', count: 1 },
+  { name: 'Bar shelves', lenFt: 16, wPerFt: 4.0, protocol: 'DMX512', type: 'rgb', count: 4 },
+  { name: 'Pool deck', lenFt: 48, wPerFt: 4.4, protocol: 'DMX512', type: 'rgbw', count: 6 },
+  { name: 'Primary bath niche', lenFt: 3, wPerFt: 3.0, protocol: 'Phase-cut (ELV)', type: 'single', count: 1 },
+];
+const SCENES = [
+  { name: 'Entertain', levels: [80, 100, 40, 100, 100, 0] },
+  { name: 'Dinner', levels: [45, 60, 20, 70, 60, 0] },
+  { name: 'Movie', levels: [10, 0, 15, 20, 0, 0] },
+  { name: 'Night path', levels: [0, 0, 10, 0, 0, 5] },
+  { name: 'Clean / work', levels: [100, 100, 100, 100, 100, 100] },
+];
+const DMX = { startAddress: 1, unitLoadsPerSegment: 32, terminatorOhms: 120 };
+
+/* Advanced 3.4 — commissioning; Advanced 4 — code & listing */
+const COMMISSION_CHECKS = ['Full', 'Low', 'Off (no ghosting)', 'Labeled'];
+const CODE_CHECKLIST = [
+  ['Listing', 'Tape, channel (if part of a listed assembly), and supply are listed for the application. [What your UL listing covers]'],
+  ['Class 2', 'Know the supply’s classification and how it affects wire type and installation method.'],
+  ['NEC Article 411', 'Low-voltage lighting at 30 V or less: requirements for the supply and wiring. Check the current code.'],
+  ['Wire ratings', 'In-wall and plenum spaces may require specific cable ratings.'],
+  ['Energy code', 'Many jurisdictions require specific dimming or control capability. Check locally.'],
+  ['Documentation', 'Spec sheets, listings, and compatibility confirmations in the project file.'],
+];
+const LISTING = { title: '[Product line] listings', lines: ['[UL listing number / file]', '[What the listing covers: tape, channel, supply]', '[Class 2 supplies: model list]', '[Wet / damp location ratings]'], link: '[link to documentation]' };
 
 /* =====================================================================
    2. UTILITIES
@@ -2040,6 +2172,7 @@ function buildUI() {
     ? `<label class="inp"><span>${l}</span><select data-ex="${k}">${Object.keys(AWG_OHMS_PER_1000FT).map((g) => `<option value="${g}">${g}</option>`).join('')}</select><span class="unit">${u}</span></label>`
     : inp(kind === 'list' ? `type="text" data-ex="${k}" data-kind="list"` : `type="number" step="any" min="0" data-ex="${k}"`, l, u)).join('');
   const z2Inputs = ZONE2_INPUTS.map(([k, l, u, kind]) => inp(kind === 'text' ? `type="text" data-z2="${k}"` : `type="number" step="any" min="0" data-z2="${k}"`, l, u)).join('');
+  const advInputs = ADV_INPUTS.map(([o, k, l, u]) => inp(`type="number" step="any" min="0" data-obj="${o}" data-key="${k}"`, l, u)).join('');
   const partInputs = Object.keys(PARTS).map((k) => `<label class="inp wide"><span>${k.replace(/([A-Z])/g, ' $1').toLowerCase()}</span><input type="text" data-part="${k}"></label>`).join('');
   const trainHtml = sec('Training visual', `
       <div class="row"><select id="trainVisual">${groups.map((g) => `<optgroup label="${g}">${TRAINING_VISUALS.filter((v) => v.group === g).map((v) => `<option value="${v.id}">${v.section} · ${escapeHtml(v.title)}</option>`).join('')}</optgroup>`).join('')}</select></div>
@@ -2058,7 +2191,9 @@ function buildUI() {
       <p class="note" style="margin-top:0">Every training visual recalculates from these. Defaults follow the outline; values are illustrative.</p>
       ${exInputs}
       <div class="sub">Second takeoff zone (4.3)</div>${z2Inputs}
-      <div class="sub">Part-number placeholders</div>${partInputs}`, false, 'only-train');
+      <div class="sub">Advanced & section 5 placeholders</div>${advInputs}
+      <div class="sub">Part-number placeholders</div>${partInputs}
+      <p class="note">Tables and text (failure modes, protocols, profile matrix, zones, scenes, checklists) are edited in section 1c of the code.</p>`, false, 'only-train');
   $('#panelBody').innerHTML =
     sec('View', `
       <div class="seg" id="modeSeg"><button data-mode="3d">3D model</button><button data-mode="schem">System diagram</button><button data-mode="train">Training visuals</button></div>
@@ -2127,6 +2262,7 @@ function wireUI() {
       requestRender(); return;
     }
     if (t.dataset.part) { PARTS[t.dataset.part] = t.value; requestRender(); return; }
+    if (t.dataset.obj) { if (Number.isFinite(v) && v >= 0) ADV_OBJS[t.dataset.obj][t.dataset.key] = v; requestRender(); return; }
     if (t.id === 'trainStep') { state.trainStep = v; updateBadge(); syncUI(); requestRender(); return; }
     if (t.id === 'labelScale2') { state.labelScale = v / 100; syncUI(); requestRender(); return; }
     switch (t.id) {
@@ -2298,6 +2434,7 @@ function syncTrainingUI() {
   document.querySelectorAll('[data-ex]').forEach((el) => { if (el === active) return; const val = EXAMPLE[el.dataset.ex]; const str = Array.isArray(val) ? val.join(', ') : String(val); if (el.value !== str) el.value = str; });
   const z2 = TAKEOFF_ZONES[1];
   document.querySelectorAll('[data-z2]').forEach((el) => { if (el === active || !z2) return; const k = el.dataset.z2, val = k === 'legsFt' ? z2.legsFt.reduce((a, b) => a + b, 0) : z2[k]; if (el.value !== String(val)) el.value = String(val); });
+  document.querySelectorAll('[data-obj]').forEach((el) => { if (el === active) return; const str = String(ADV_OBJS[el.dataset.obj][el.dataset.key]); if (el.value !== str) el.value = str; });
   document.querySelectorAll('[data-part]').forEach((el) => { if (el !== active && el.value !== PARTS[el.dataset.part]) el.value = PARTS[el.dataset.part]; });
 }
 
@@ -3509,38 +3646,38 @@ function callouts3D(ctx, w, h, proj, items) {
 
 /* ---------- the visual registry (order = panel order) ---------- */
 const TRAINING_VISUALS = [
-  { id: 'ex', section: '3', group: '3 · The math', title: 'The running example', subtitle: 'One example carried through all four calculations', kind: '2d', steps: 3,
+  { id: 'ex', section: '3', group: 'Intermediate · 3 The math', title: 'The running example', subtitle: 'One example carried through all four calculations', kind: '2d', steps: 3,
     stepLabels: ['The example', 'Four calculations', 'Results preview'], draw: drawExample },
-  { id: 'load', section: '3.1', group: '3 · The math', title: 'Load and power supply size', subtitle: 'Length × W/ft, then the 80% rule', kind: '2d', steps: 4,
+  { id: 'load', section: '3.1', group: 'Intermediate · 3 The math', title: 'Load and power supply size', subtitle: 'Length × W/ft, then the 80% rule', kind: '2d', steps: 4,
     stepLabels: ['Formula', 'Total load', '80% rule', 'Next size up'], draw: drawLoad },
-  { id: 'maxrun', section: '3.2', group: '3 · The math', title: 'Maximum run length', subtitle: 'Brightness along a long run, single-end vs. both-end feed', kind: '2d', steps: 3,
+  { id: 'maxrun', section: '3.2', group: 'Intermediate · 3 The math', title: 'Maximum run length', subtitle: 'Brightness along a long run, single-end vs. both-end feed', kind: '2d', steps: 3,
     stepLabels: ['Single-end fade', 'Max run exceeded', 'Both-end feed'], draw: drawMaxRun, animated: true },
-  { id: 'feed3d-32', section: '3.2', group: '3 · The math', title: 'A long run fading (3D)', subtitle: () => `${fmt(EXAMPLE.runFt)} ft cove fed from one end, then from both ends`, kind: '3d', steps: 3,
+  { id: 'feed3d-32', section: '3.2', group: 'Intermediate · 3 The math', title: 'A long run fading (3D)', subtitle: () => `${fmt(EXAMPLE.runFt)} ft cove fed from one end, then from both ends`, kind: '3d', steps: 3,
     stepLabels: ['Single-end feed', 'Max run & brightness', 'Fixed: both-end feed'], animated: true,
     build: (step) => buildFeedScene(step >= 3 ? 'both' : 'single'), key: (step) => (step >= 3 ? 'both' : 'single'), view: feedView,
     overlay: (ctx, w, h, proj, step, meta) => feedOverlay(ctx, w, h, proj, meta, { tags: step >= 2, maxRun: step >= 2 }) },
-  { id: 'methods', section: '3.3', group: '3 · The math', title: 'Feed methods', subtitle: 'Where the power goes in, and how current flows', kind: '2d', steps: 4,
+  { id: 'methods', section: '3.3', group: 'Intermediate · 3 The math', title: 'Feed methods', subtitle: 'Where the power goes in, and how current flows', kind: '2d', steps: 4,
     stepLabels: FEED_METHODS.map((m) => m.name), draw: drawMethods, animated: true },
-  { id: 'feed3d-33', section: '3.3', group: '3 · The math', title: 'Feed method in 3D', subtitle: () => `${fmt(EXAMPLE.runFt)} ft cove · pick the method in the panel`, kind: '3d', steps: 1, animated: true,
+  { id: 'feed3d-33', section: '3.3', group: 'Intermediate · 3 The math', title: 'Feed method in 3D', subtitle: () => `${fmt(EXAMPLE.runFt)} ft cove · pick the method in the panel`, kind: '3d', steps: 1, animated: true,
     options: [{ id: 'method', label: 'Feed method', choices: FEED_METHODS.map((m) => [m.id, m.name]), def: () => CALC.recommendFeed(EXAMPLE.runFt, EXAMPLE.maxRunFt) }],
     build: (step, o) => buildFeedScene(o.method), key: (step, o) => o.method, view: feedView,
     overlay: (ctx, w, h, proj, step, meta) => feedOverlay(ctx, w, h, proj, meta, { tags: true, maxRun: meta.method === 'single' }) },
-  { id: 'drop', section: '3.4', group: '3 · The math', title: 'Wire gauge: voltage drop to the tape', subtitle: 'The wire from the supply to the tape drops voltage too', kind: '2d', steps: 6,
+  { id: 'drop', section: '3.4', group: 'Intermediate · 3 The math', title: 'Wire gauge: voltage drop to the tape', subtitle: 'The wire from the supply to the tape drops voltage too', kind: '2d', steps: 6,
     stepLabels: ['The circuit', 'Current', 'Round trip', 'Resistance', 'Voltage drop', 'Verdict'], draw: drawWireDrop, animated: true },
-  { id: 'gauge', section: '3.4', group: '3 · The math', title: 'Wire gauge vs. distance', subtitle: () => `Recommended minimum gauge · ${EXAMPLE.volts} V · ≤ ${EXAMPLE.dropLimitPct}% drop`, kind: '2d', steps: 2,
+  { id: 'gauge', section: '3.4', group: 'Intermediate · 3 The math', title: 'Wire gauge vs. distance', subtitle: () => `Recommended minimum gauge · ${EXAMPLE.volts} V · ≤ ${EXAMPLE.dropLimitPct}% drop`, kind: '2d', steps: 2,
     stepLabels: ['Cheat sheet', 'Running example'], draw: drawGaugeTable },
-  { id: 'cut', section: '4.1', group: '4 · Building a custom run', title: 'Custom lengths and cut intervals', subtitle: 'Tape cuts only at marked intervals; the lit length snaps to them', kind: '2d', steps: 4,
+  { id: 'cut', section: '4.1', group: 'Intermediate · 4 Building a custom run', title: 'Custom lengths and cut intervals', subtitle: 'Tape cuts only at marked intervals; the lit length snaps to them', kind: '2d', steps: 4,
     stepLabels: ['Run length', 'Cut segments', 'Dark end close-up', 'Decision'], draw: drawCut },
-  { id: 'cut3d', section: '4.1', group: '4 · Building a custom run', title: 'Cut point and dark end (3D)', subtitle: 'Close-up of the end of the run', kind: '3d', steps: 1,
+  { id: 'cut3d', section: '4.1', group: 'Intermediate · 4 Building a custom run', title: 'Cut point and dark end (3D)', subtitle: 'Close-up of the end of the run', kind: '3d', steps: 1,
     build: () => buildCutScene(), key: () => 'cut', view: cutView, overlay: (ctx, w, h, proj, step, meta) => cutOverlay(ctx, w, h, proj, meta) },
-  { id: 'corners3d', section: '4.2', group: '4 · Building a custom run', title: 'Corners, joins, and jumpers', subtitle: 'Four ways through a corner or a join', kind: '3d', steps: 4,
+  { id: 'corners3d', section: '4.2', group: 'Intermediate · 4 Building a custom run', title: 'Corners, joins, and jumpers', subtitle: 'Four ways through a corner or a join', kind: '3d', steps: 4,
     stepLabels: CORNER_ITEMS, build: (step) => buildCornersScene(step), key: (step) => step, view: cornersView,
     overlay: (ctx, w, h, proj, step, meta) => cornersOverlay(ctx, w, h, proj, meta) },
-  { id: 'checklist', section: '4.3', group: '4 · Building a custom run', title: 'The takeoff, step by step', subtitle: 'Do it the same way every time', kind: '2d', steps: 9,
+  { id: 'checklist', section: '4.3', group: 'Intermediate · 4 Building a custom run', title: 'The takeoff, step by step', subtitle: 'Do it the same way every time', kind: '2d', steps: 9,
     stepLabels: CHECKLIST.map((c) => c[0]), draw: drawChecklist },
-  { id: 'takeoff', section: '4.3', group: '4 · Building a custom run', title: 'Plan and takeoff table', subtitle: 'Zones color-coded on the plan; the takeoff built row by row', kind: '2d', steps: 6,
+  { id: 'takeoff', section: '4.3', group: 'Intermediate · 4 Building a custom run', title: 'Plan and takeoff table', subtitle: 'Zones color-coded on the plan; the takeoff built row by row', kind: '2d', steps: 6,
     stepLabels: ['Plan', 'Mark zones', 'Measure runs', 'Row: zone 1', 'Row: zone 2', 'Accessories, feeds & supplies'], draw: drawTakeoff },
-  { id: 'mistakes', section: '4.4', group: '4 · Building a custom run', title: 'Common quoting mistakes', subtitle: 'And the fix for each', kind: '2d', steps: 5,
+  { id: 'mistakes', section: '4.4', group: 'Intermediate · 4 Building a custom run', title: 'Common quoting mistakes', subtitle: 'And the fix for each', kind: '2d', steps: 5,
     stepLabels: MISTAKES.map((m) => m[0]), draw: drawMistakes },
 ];
 const currentVisual = () => TRAINING_VISUALS.find((v) => v.id === state.trainVisual) || TRAINING_VISUALS[0];
@@ -3635,7 +3772,839 @@ const EXAMPLE_INPUTS = [
   ['cutRunIn', 'Cut example run', 'in'], ['cutIntervalIn', 'Cut interval', 'in'], ['ledsPerSegment', 'LEDs per segment', ''],
   ['profileStickFt', 'Profile stick length', 'ft'], ['clipSpacingIn', 'Clip spacing', 'in'], ['wastePct', 'Waste allowance', '%'],
 ];
+const ADV_OBJS = { PLACEMENT, DIMMER, PWM, DTW, THERMAL, DMX };
+const ADV_INPUTS = [
+  ['PLACEMENT', 'localFt', 'Local supply distance', 'ft'], ['PLACEMENT', 'remoteFt', 'Remote supply distance', 'ft'],
+  ['DIMMER', 'minLoadW', 'Dimmer min load', 'W'], ['DIMMER', 'ledMaxW', 'Dimmer LED rating', 'W'], ['DIMMER', 'incandescentW', 'Incandescent rating', 'W'],
+  ['DIMMER', 'maxSupplies', 'Max supplies / dimmer', ''], ['DIMMER', 'shortRunW', 'Short-run example load', 'W'],
+  ['PWM', 'lowHz', 'Low PWM frequency', 'Hz'], ['PWM', 'highHz', 'High PWM frequency', 'Hz'],
+  ['DTW', 'fullK', 'Dim-to-warm full CCT', 'K'], ['DTW', 'dimK', 'Dim-to-warm dimmed CCT', 'K'],
+  ['THERMAL', 'limitC', 'Tape temperature limit', '°C'], ['DMX', 'startAddress', 'DMX start address', ''],
+];
 const ZONE2_INPUTS = [['name', 'Name', '', 'text'], ['legsFt', 'Length', 'ft', 'leg'], ['wPerFt', 'Tape power', 'W/ft'], ['supplyDistFt', 'Supply distance', 'ft'], ['maxRunFt', 'Max run', 'ft']];
+
+
+/* =====================================================================
+   20. TRAINING VISUALS — Intermediate section 5 & the Advanced session
+   Same 2D slide kit as section 19. Data lives in section 1c.
+   ===================================================================== */
+function splitLines(ctx, s, maxW) {
+  const out = [];
+  String(s).split('\n').forEach((par) => {
+    let ln = '';
+    par.split(' ').forEach((wd) => { const t = ln ? ln + ' ' + wd : wd; if (ctx.measureText(t).width > maxW && ln) { out.push(ln); ln = wd; } else ln = t; });
+    out.push(ln);
+  });
+  return out;
+}
+/** Data table. cols: [{h, w (relative), bold, muted, color}], cells: string or {t, color, bold, size, pill, check}. */
+function table(ctx, x, y, w, cols, rows, o = {}) {
+  const size = o.size || 18, hs = o.headSize || 14, px = o.padX || 16, py = o.padY || 12, lh = size * 1.28;
+  const tot = cols.reduce((s, c) => s + c.w, 0), ws = cols.map((c) => c.w / tot * w), xs = [];
+  let acc = x; ws.forEach((cw) => { xs.push(acc); acc += cw; });
+  const cell = (c) => (c && typeof c === 'object' ? c : { t: c == null ? '' : String(c) });
+  const bold = (c, j) => (c.bold ?? cols[j].bold) ? 700 : 400;
+  const lines = rows.map((r) => r.map((c0, j) => { const c = cell(c0); ctx.font = `${bold(c, j)} ${c.size || size}px ${BRAND.font}`; return c.pill || c.check !== undefined ? [''] : splitLines(ctx, c.t, ws[j] - px * 2); }));
+  const rh = lines.map((ls) => Math.max(o.minRow || 0, Math.max(...ls.map((l) => l.length)) * lh + py * 2));
+  const headH = o.noHead ? 0 : hs + py * 2 + 4;
+  const H = headH + rh.reduce((a, b) => a + b, 0);
+  card(ctx, x, y, w, H, o.cardOpts || {});
+  if (!o.noHead) cols.forEach((c, j) => txt(ctx, c.h, xs[j] + px, y + py + hs + 2, { size: hs, weight: 700, color: c.color || P.muted, maxW: ws[j] - px }));
+  let ry = y + headH;
+  rows.forEach((r, i) => {
+    const shown = o.reveal == null || i < o.reveal;
+    line(ctx, [[x + 10, ry], [x + w - 10, ry]], { color: P.line, width: 1 });
+    if (shown && o.reveal != null && o.highlightLast !== false && i === o.reveal - 1 && o.reveal < rows.length + 1) {
+      ctx.fillStyle = hexA(BRAND.primary, 0.06); ctx.fillRect(x + 2, ry + 1, w - 4, rh[i] - 2);
+      ctx.fillStyle = BRAND.primary; ctx.fillRect(x + 3, ry + 8, 4, rh[i] - 16);
+    }
+    r.forEach((c0, j) => {
+      const c = cell(c0), cx = xs[j] + px, cy = ry + py;
+      if (!shown) { if (j === 0) txt(ctx, lines[i][0][0] || '', cx, cy + size, { size, weight: 700, color: P.line, maxW: ws[j] - px * 2 }); return; }
+      if (c.pill) { pill(ctx, c.t, cx, cy + lh / 2, { bg: c.pill, color: '#fff', size: size * 0.8 }); return; }
+      if (c.check !== undefined) {
+        if (c.check === null) { roundRect(ctx, cx, cy + 1, size + 2, size + 2, 4); ctx.lineWidth = 2; ctx.strokeStyle = P.faint; ctx.stroke(); }
+        else drawCheck(ctx, cx + size / 2, cy + size / 2 + 2, size * 0.55, c.check);
+        return;
+      }
+      lines[i][j].forEach((ln, k) => txt(ctx, ln, cx, cy + size + k * lh - 3, { size: c.size || size, weight: bold(c, j), color: c.color || (cols[j].muted ? P.muted : P.ink) }));
+    });
+    ry += rh[i];
+  });
+  return H;
+}
+function fbox(ctx, x, y, w, h, title, sub, o = {}) {
+  card(ctx, x, y, w, h, { fill: o.fill, stroke: o.stroke || P.cardLine, lw: o.lw || 1.5, r: 10, shadow: o.shadow });
+  if (o.bar) { ctx.save(); roundRect(ctx, x, y, w, h, 10); ctx.clip(); ctx.fillStyle = o.bar; ctx.fillRect(x, y, 6, h); ctx.restore(); }
+  const fs = o.size || 18;
+  txt(ctx, title, x + w / 2 + (o.bar ? 3 : 0), y + h / 2 + (sub ? -fs * 0.45 : 1), { size: fs, weight: 700, align: 'center', baseline: 'middle', color: o.color || P.ink, maxW: w - 18 });
+  if (sub) txt(ctx, sub, x + w / 2 + (o.bar ? 3 : 0), y + h / 2 + fs * 0.75, { size: fs * 0.74, color: o.subColor || P.muted, align: 'center', baseline: 'middle', maxW: w - 18 });
+}
+function arrow(ctx, pts, color, o = {}) {
+  line(ctx, pts, { color, width: o.width || 3, dash: o.dash });
+  const a = pts[pts.length - 2], b = pts[pts.length - 1];
+  arrowHead(ctx, b[0], b[1], Math.atan2(b[1] - a[1], b[0] - a[0]), o.head || 12, color);
+}
+function kelvinColor(K) {
+  const t = K / 100; let r, g, b;
+  if (t <= 66) { r = 255; g = 99.47 * Math.log(t) - 161.12; b = t <= 19 ? 0 : 138.52 * Math.log(t - 10) - 305.04; }
+  else { r = 329.7 * Math.pow(t - 60, -0.1332); g = 288.12 * Math.pow(t - 60, -0.0755); b = 255; }
+  return `rgb(${clamp(r, 0, 255) | 0},${clamp(g, 0, 255) | 0},${clamp(b, 0, 255) | 0})`;
+}
+/** Dim level used by animated waveform visuals: sweeps while animating, otherwise the panel's dim level. */
+const animLevel = () => (state.animPlay ? 0.55 + 0.38 * Math.sin(animT * 0.9) : clamp(state.dim, 0.05, 1));
+const bullet = (ctx, x, y, s, maxW, o = {}) => { ctx.beginPath(); ctx.arc(x + 5, y - (o.size || 18) * 0.35, 4, 0, Math.PI * 2); ctx.fillStyle = o.dot || P.brand; ctx.fill(); return wrap(ctx, s, x + 20, y, maxW - 20, o); };
+const CH_PER = { single: 1, tw: 2, rgb: 3, rgbw: 4 };
+const TYPE_NAME = { single: 'Single color', tw: 'Tunable white', rgb: 'RGB', rgbw: 'RGBW' };
+const TYPE_COLOR = { single: '#E8A33D', tw: '#2F7CF6', rgb: '#8B4FE8', rgbw: '#1FA463' };
+function dmxPlan() {
+  let addr = DMX.startAddress;
+  return ADV_ZONES.map((z) => {
+    const ch = CH_PER[z.type] * z.count, isDmx = /DMX/i.test(z.protocol);
+    const r = { ...z, channels: isDmx ? ch : 0, start: isDmx ? addr : null, end: isDmx ? addr + ch - 1 : null };
+    if (isDmx) addr += ch;
+    const load = z.lenFt * z.wPerFt;
+    return Object.assign(r, { load, supply: CALC.nextSupply(load / EXAMPLE.derate) });
+  });
+}
+const pad3 = (n) => String(n).padStart(3, '0');
+
+/* ---------- Intermediate 5.1 — supply placement ---------- */
+function drawPlacement(ctx, step) {
+  const S = exampleSummary(), I = S.I;
+  card(ctx, 60, 140, 880, 700);
+  const k = 27, ox = 120, oy = 190, p = (x, y) => [ox + x * k, oy + y * k];
+  const wall = (pts) => line(ctx, pts.map(([x, y]) => p(x, y)), { color: P.muted, width: 6 });
+  wall([[0, 0], [20, 0], [20, 14], [9, 14]]); wall([[6, 14], [0, 14], [0, 0]]);
+  wall([[0, 14], [0, 23], [9, 23], [9, 18], [20, 18], [20, 14]]); wall([[0, 18], [3, 18]]); wall([[5.5, 18], [9, 18]]);
+  txt(ctx, 'Living room', ...p(10, 8.5), { size: 20, weight: 600, color: P.faint, align: 'center' });
+  txt(ctx, 'Hall', ...p(14, 16.4), { size: 18, weight: 600, color: P.faint, align: 'center' });
+  txt(ctx, 'Mechanical room', ...p(4.5, 21.3), { size: 15, weight: 600, color: P.faint, align: 'center' });
+  const runA = p(2.5, 0.6), runB = p(17.5, 0.6);
+  line(ctx, [runA, runB], { color: ZONE_COLORS[0], width: 9 });
+  pill(ctx, 'Cove run', (runA[0] + runB[0]) / 2, runA[1] + 30, { bg: ZONE_COLORS[0], color: '#fff', size: 15, align: 'center' });
+  const gauge = (ft) => { const g = CALC.gaugeFor(I, ft); return g ? `${g} AWG min · ${fmt(CALC.wire(I, ft, g).pct)}% drop` : 'too far: move closer'; };
+  if (step >= 2) {
+    const s = p(4.5, 3.2); drawPSU(ctx, s[0] - 32, s[1] - 18, 64, 36, 'Local');
+    line(ctx, [[s[0] - 32, s[1]], p(2.5, 3.2), runA], { color: P.good, width: 3, dash: [8, 6] });
+    pill(ctx, `${PLACEMENT.localFt} ft · ${gauge(PLACEMENT.localFt)}`, s[0] + 44, s[1], { bg: P.good, color: '#fff', size: 14 });
+    txt(ctx, 'Access panel in the soffit', s[0] + 44, s[1] + 36, { size: 13, color: P.muted });
+  }
+  if (step >= 3) {
+    const s = p(4.5, 20.0); drawPSU(ctx, s[0] - 34, s[1] - 18, 68, 36, 'Remote');
+    line(ctx, [[s[0], s[1] - 18], p(4.5, 16), p(0.8, 16), p(0.8, 0.6), runA], { color: P.warn, width: 3, dash: [8, 6] });
+    pill(ctx, `${PLACEMENT.remoteFt} ft · ${gauge(PLACEMENT.remoteFt)}`, ...p(1.2, 12.5), { bg: P.warn, color: '#fff', size: 14 });
+  }
+  txt(ctx, `Example load: ${fmt(S.load)} W at ${EXAMPLE.volts} V = ${fmt(I, 2)} A · ≤ ${EXAMPLE.dropLimitPct}% drop`, 90, 822, { size: 15, color: P.muted });
+  const cardTO = (y, h, color, title, pros, cons) => {
+    card(ctx, 970, y, 570, h, { fill: hexA(color, 0.07), stroke: hexA(color, 0.5), shadow: false });
+    txt(ctx, title, 996, y + 40, { size: 22, weight: 700 });
+    drawCheck(ctx, 1008, y + 78, 12, true); wrap(ctx, pros, 1030, y + 84, 490, { size: 18 });
+    drawCheck(ctx, 1008, y + 128, 12, false); wrap(ctx, cons, 1030, y + 134, 490, { size: 18, color: P.muted });
+  };
+  if (step >= 2) cardTO(140, 180, P.good, 'Local (near the tape)', 'Short, low-loss wire', 'Needs a hidden access spot nearby');
+  if (step >= 3) cardTO(336, 180, P.warn, 'Remote (closet or mechanical room)', 'Easier access and heat control', 'Longer wire runs and heavier gauge');
+  if (step >= 4) {
+    card(ctx, 970, 532, 570, 308);
+    txt(ctx, 'Rules of placement', 996, 572, { size: 20, weight: 700 });
+    let y = 612;
+    ['Ventilation: never buried in insulation', 'Service access: it’s the part most likely to be replaced', 'Dry location unless rated for wet', 'Label each supply with its zone', 'One supply per run: never combine outputs'].forEach((t) => { y += bullet(ctx, 996, y, t, 520, { size: 18 }) + 8; });
+  }
+}
+/* ---------- Intermediate 5.2 — dimming cheat sheet ---------- */
+function drawDimCheat(ctx, step) {
+  pill(ctx, 'Go deeper in Advanced', 1540, 72, { bg: BRAND.accent, color: '#1b222b', size: 16, align: 'right' });
+  const h = table(ctx, 60, 140, 1480, [{ h: 'Control type', w: 1.1, bold: true }, { h: 'Typically used for', w: 1.6 }, { h: 'Key point', w: 2 }], CONTROL_TYPES, { size: 21, reveal: Math.min(step, CONTROL_TYPES.length), minRow: 84 });
+  if (step > CONTROL_TYPES.length) {
+    const y = 140 + h + 24;
+    card(ctx, 60, y, 1480, 110, { fill: hexA(P.warn, 0.08), stroke: hexA(P.warn, 0.5), shadow: false });
+    txt(ctx, 'The most common callback is a supply / dimmer mismatch.', 90, y + 46, { size: 22, weight: 700 });
+    txt(ctx, 'Read the supply’s spec sheet to see what it accepts, then pick the control to match. Plan zones from scenes.', 90, y + 82, { size: 18, color: P.muted, maxW: 1420 });
+  }
+}
+/* ---------- Intermediate 5.3 — recap ---------- */
+function drawRecap(ctx, step) {
+  RECAP.forEach(([t, s], i) => {
+    const y = 140 + i * 172;
+    if (step < i + 1) { ghost(ctx, 60, y, 1480, 152); return; }
+    card(ctx, 60, y, 1480, 152, { stroke: step === i + 1 ? P.brand : P.cardLine, lw: step === i + 1 ? 2.5 : 1.5 });
+    badge(ctx, i + 1, 130, y + 76, 36);
+    txt(ctx, t, 200, y + 72, { size: 34, weight: 700, maxW: 1300 });
+    txt(ctx, s, 200, y + 112, { size: 20, color: P.muted, maxW: 1300 });
+  });
+}
+
+/* ---------- Advanced 1.1 — phase-cut waveforms ---------- */
+function drawWaveforms(ctx, step) {
+  const lvl = animLevel(), alpha = Math.PI * clamp(1 - lvl, 0.04, 0.96);
+  const chart = (y, kind, shown) => {
+    const x0 = 60, w = 1000, h = 330;
+    if (!shown) { ghost(ctx, x0, y, w, h); return; }
+    card(ctx, x0, y, w, h);
+    const fwd = kind === 'fwd';
+    txt(ctx, fwd ? 'Forward phase · leading edge (TRIAC)' : 'Reverse phase · trailing edge (ELV)', x0 + 28, y + 44, { size: 24, weight: 700 });
+    txt(ctx, fwd ? 'Designed for incandescent and magnetic transformers' : 'Designed for electronic loads, which is what LED power supplies are', x0 + 28, y + 74, { size: 17, color: P.muted });
+    pill(ctx, `Dim level ${Math.round(lvl * 100)}%`, x0 + w - 24, y + 40, { bg: P.soft, size: 15, align: 'right' });
+    const X0 = x0 + 60, X1 = x0 + w - 50, mid = y + 205, A = 95, X = (th) => X0 + (th / (2 * Math.PI)) * (X1 - X0), Y = (th) => mid - A * Math.sin(th);
+    line(ctx, [[X0, mid], [X1, mid]], { color: P.line, width: 1.5 });
+    ctx.beginPath(); for (let i = 0; i <= 200; i++) { const th = 2 * Math.PI * i / 200; i ? ctx.lineTo(X(th), Y(th)) : ctx.moveTo(X(th), Y(th)); }
+    ctx.strokeStyle = P.faint; ctx.lineWidth = 2; ctx.setLineDash([5, 6]); ctx.stroke(); ctx.setLineDash([]);
+    const color = fwd ? P.warn : BRAND.primary;
+    for (let k = 0; k < 2; k++) {
+      const a = k * Math.PI + (fwd ? alpha : 0), b = k * Math.PI + (fwd ? Math.PI : Math.PI - alpha);
+      ctx.beginPath(); ctx.moveTo(X(a), mid);
+      for (let i = 0; i <= 60; i++) { const th = a + (b - a) * i / 60; ctx.lineTo(X(th), Y(th)); }
+      ctx.lineTo(X(b), mid); ctx.closePath(); ctx.fillStyle = hexA(color, 0.22); ctx.fill();
+      ctx.beginPath(); for (let i = 0; i <= 60; i++) { const th = a + (b - a) * i / 60; i ? ctx.lineTo(X(th), Y(th)) : ctx.moveTo(X(th), Y(th)); }
+      ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.stroke();
+      const edge = fwd ? a : b; line(ctx, [[X(edge), mid], [X(edge), Y(edge)]], { color, width: 4 });
+    }
+    const e = fwd ? alpha : Math.PI - alpha;
+    pill(ctx, fwd ? 'Cut at the start of each half-cycle' : 'Cut at the end of each half-cycle', X(e) + (fwd ? -6 : 6), mid + 26, { bg: color, color: '#fff', size: 14, align: fwd ? 'right' : 'left' });
+    txt(ctx, 'Conducted (delivered to the supply)', X0, y + h - 20, { size: 14, color: P.muted });
+    txt(ctx, 'Dashed: full AC sine', X1, y + h - 20, { size: 14, color: P.faint, align: 'right' });
+  };
+  chart(140, 'fwd', step >= 1); chart(490, 'rev', step >= 2);
+  if (step >= 3) {
+    card(ctx, 1090, 140, 450, 330, { fill: hexA(BRAND.primary, 0.07), stroke: hexA(BRAND.primary, 0.4), shadow: false });
+    txt(ctx, 'The rule', 1118, 184, { size: 15, weight: 700, color: P.muted });
+    wrap(ctx, 'Match the dimmer type to what the power supply says it supports.', 1118, 226, 400, { size: 25, weight: 700 });
+    wrap(ctx, '“TRIAC dimmable” and “ELV dimmable” on a spec sheet are not interchangeable promises.', 1118, 360, 400, { size: 18, color: P.muted });
+    card(ctx, 1090, 490, 450, 330);
+    txt(ctx, 'Always check', 1118, 534, { size: 15, weight: 700, color: P.muted });
+    wrap(ctx, 'The dimmer maker’s compatibility list against your exact supply model.', 1118, 576, 400, { size: 22, weight: 700 });
+    wrap(ctx, 'Keep a record of what you verified in the project file.', 1118, 700, 400, { size: 18, color: P.muted });
+  }
+}
+function drawFailureTable(ctx, step) {
+  pill(ctx, 'Handout', 1540, 72, { bg: P.soft, size: 15, align: 'right', color: P.muted });
+  table(ctx, 60, 140, 1480, [{ h: 'Symptom', w: 1.1, bold: true }, { h: 'Likely cause', w: 1.3 }, { h: 'First check', w: 1.1, color: P.brandInk }],
+    FAILURE_MODES.map(([a, b, c]) => [a, b, { t: c, color: P.brandInk, bold: true }]), { size: 23, reveal: step, minRow: 118 });
+}
+function drawDimmerLoad(ctx, step) {
+  const D = DIMMER, max = D.ledMaxW * 1.3, bx0 = 120, bx1 = 1460, by = 300, bh = 50, X = (w) => bx0 + clamp(w / max, 0, 1) * (bx1 - bx0);
+  card(ctx, 60, 140, 1480, 330);
+  txt(ctx, 'Dimmer load window [your dimmer spec]', 90, 182, { size: 22, weight: 700 });
+  hatch(ctx, bx0, by, X(D.minLoadW) - bx0, bh, P.bad);
+  ctx.fillStyle = hexA(P.good, 0.22); ctx.fillRect(X(D.minLoadW), by, X(D.ledMaxW) - X(D.minLoadW), bh);
+  hatch(ctx, X(D.ledMaxW), by, bx1 - X(D.ledMaxW), bh, P.bad);
+  roundRect(ctx, bx0, by, bx1 - bx0, bh, 6); ctx.lineWidth = 1.5; ctx.strokeStyle = P.line; ctx.stroke();
+  [0, D.minLoadW, D.ledMaxW].forEach((w) => { line(ctx, [[X(w), by - 8], [X(w), by + bh + 8]], { color: P.ink, width: 2 }); txt(ctx, `${w} W`, X(w), by + bh + 30, { size: 15, weight: 700, align: 'center' }); });
+  txt(ctx, `Min load ${D.minLoadW} W`, X(D.minLoadW) + 8, by - 14, { size: 15, weight: 700, color: P.bad });
+  txt(ctx, 'Operating window', (X(D.minLoadW) + X(D.ledMaxW)) / 2, by + bh / 2 + 6, { size: 18, weight: 700, color: P.good, align: 'center' });
+  txt(ctx, `LED rating ${D.ledMaxW} W`, X(D.ledMaxW) - 8, by - 14, { size: 15, weight: 700, color: P.bad, align: 'right' });
+  pill(ctx, `Incandescent rating ${D.incandescentW} W → not the LED limit`, bx1, 196, { bg: P.soft, size: 14, align: 'right', color: P.muted });
+  const marker = (w, label, ok) => { const x = X(w); arrowHead(ctx, x, by - 2, Math.PI / 2, 16, ok ? P.good : P.bad); pill(ctx, label, x, by - 44, { bg: ok ? P.good : P.bad, color: '#fff', size: 15, align: x < 400 ? 'left' : 'center' }); };
+  if (step >= 2) marker(D.shortRunW, `Short accent run · ${D.shortRunW} W → flicker, pop-on`, D.shortRunW >= D.minLoadW);
+  if (step >= 3) { const ex = exampleSummary().load; marker(ex, `Living cove · ${fmt(ex)} W ✓`, ex >= D.minLoadW && ex <= D.ledMaxW); }
+  txt(ctx, 'Dimmer ratings assume incandescent watts. Use the maker’s LED rating, which is often much lower.', 90, 444, { size: 16, color: P.muted });
+  if (step >= 4) {
+    card(ctx, 60, 500, 720, 340);
+    txt(ctx, 'Inrush: supplies per dimmer', 90, 542, { size: 22, weight: 700 });
+    for (let i = 0; i < D.supplyCountTest; i++) {
+      const x = 96 + i * 160, over = i >= D.maxSupplies;
+      drawPSU(ctx, x, 580, 130, 64, `Supply ${i + 1}`);
+      if (over) { drawCheck(ctx, x + 120, 584, 18, false); }
+    }
+    wrap(ctx, `Each supply draws a brief surge at turn-on. Max ${D.maxSupplies} supplies on one dimmer [spec]. More can trip or damage it.`, 90, 700, 660, { size: 18, color: P.muted });
+  }
+  if (step >= 5) {
+    card(ctx, 820, 500, 720, 340);
+    txt(ctx, 'Neutral & ghosting', 850, 542, { size: 22, weight: 700 });
+    fbox(ctx, 850, 580, 140, 64, 'Dimmer', 'no neutral', { stroke: P.bad });
+    fbox(ctx, 1110, 580, 150, 64, 'LED supply', null);
+    arrow(ctx, [[990, 600], [1108, 600]], P.wire, { width: 3 });
+    arrow(ctx, [[990, 626], [1108, 626]], P.bad, { width: 2, dash: [5, 5], head: 10 });
+    txt(ctx, 'leakage when “off”', 1050, 652, { size: 13, color: P.bad, align: 'center' });
+    roundRect(ctx, 1290, 600, 210, 16, 4); ctx.fillStyle = '#e9d9b8'; ctx.fill();
+    txt(ctx, 'faint glow', 1395, 640, { size: 13, color: P.muted, align: 'center' });
+    wrap(ctx, 'Many modern dimmers need a neutral. Retrofit boxes often lack one, so check before you quote. No neutral → leakage current → ghosting.', 850, 700, 660, { size: 18, color: P.muted });
+  }
+}
+
+/* ---------- Advanced 1.2 — CVR vs PWM ---------- */
+function drawCvrPwm(ctx, step) {
+  const lvl = animLevel(), V = EXAMPLE.volts;
+  const frame = (y, title, sub, shown, plot) => {
+    if (!shown) { ghost(ctx, 60, y, 1000, 330); return; }
+    card(ctx, 60, y, 1000, 330);
+    txt(ctx, title, 88, y + 44, { size: 24, weight: 700 }); txt(ctx, sub, 88, y + 74, { size: 17, color: P.muted });
+    pill(ctx, `Dim level ${Math.round(lvl * 100)}%`, 1036, y + 40, { bg: P.soft, size: 15, align: 'right' });
+    const X0 = 140, X1 = 1020, Y0 = y + 110, Y1 = y + 290, Yv = (v) => Y1 - (v / V) * (Y1 - Y0);
+    line(ctx, [[X0, Y1], [X1, Y1]], { color: P.line, width: 1.5 }); line(ctx, [[X0, Y0], [X1, Y0]], { color: P.line, width: 1, dash: [4, 6] });
+    txt(ctx, `${V} V`, X0 - 12, Y0 + 5, { size: 14, color: P.muted, align: 'right' }); txt(ctx, '0 V', X0 - 12, Y1 + 5, { size: 14, color: P.muted, align: 'right' });
+    txt(ctx, 'time →', X1, Y1 + 24, { size: 13, color: P.faint, align: 'right' });
+    plot(X0, X1, Yv, Y1);
+  };
+  frame(140, 'CVR · constant voltage reduction', 'Dims by lowering the output voltage. Works with some resistor-based CV tape.', step >= 1, (X0, X1, Yv, Y1) => {
+    const v = V * (0.55 + 0.45 * lvl);
+    ctx.fillStyle = hexA(P.warn, 0.15); ctx.fillRect(X0, Yv(v), X1 - X0, Y1 - Yv(v));
+    line(ctx, [[X0, Yv(v)], [X1, Yv(v)]], { color: P.warn, width: 4 });
+    pill(ctx, `${fmt(v, 1)} V steady`, X1 - 10, Yv(v) - 22, { bg: P.warn, color: '#fff', size: 14, align: 'right' });
+  });
+  frame(490, 'PWM · pulse width modulation', 'Switches full voltage on and off rapidly. The usual choice for constant-current IC tape.', step >= 2, (X0, X1, Yv, Y1) => {
+    const per = 70, off = (animT * 60) % per;
+    ctx.beginPath(); ctx.moveTo(X0, Y1);
+    for (let x = X0 - off; x < X1; x += per) {
+      const a = Math.max(X0, x), b = Math.min(X1, x + per * lvl);
+      if (b > a) { ctx.lineTo(a, Y1); ctx.lineTo(a, Yv(V)); ctx.lineTo(b, Yv(V)); ctx.lineTo(b, Y1); }
+    }
+    ctx.lineTo(X1, Y1); ctx.strokeStyle = BRAND.primary; ctx.lineWidth = 3.5; ctx.stroke();
+    ctx.fillStyle = hexA(BRAND.primary, 0.12); ctx.fill();
+    pill(ctx, `Duty cycle ${Math.round(lvl * 100)}% · full ${V} V pulses`, X1 - 10, Yv(V) - 22, { bg: BRAND.primary, color: '#fff', size: 14, align: 'right' });
+  });
+  if (step >= 3) {
+    card(ctx, 1090, 140, 450, 680);
+    txt(ctx, 'PWM frequency vs. camera', 1116, 184, { size: 22, weight: 700 });
+    txt(ctx, `Spec: ${PWM.specHz}`, 1116, 214, { size: 15, color: P.muted });
+    const strip = (y, hz, label) => {
+      txt(ctx, label, 1116, y, { size: 17, weight: 700 });
+      for (let f = 0; f < 6; f++) {
+        const t0 = f / 25 + animT * 0.37, exp = 1 / 2000; let on = 0;
+        for (let s = 0; s < 40; s++) { const t = t0 + exp * s / 40; on += ((t * hz) % 1) < lvl ? 1 : 0; }
+        const b = on / 40;
+        roundRect(ctx, 1116 + f * 68, y + 16, 60, 80, 6); ctx.fillStyle = b > 0.02 ? litColor(0.35 + 0.65 * b).getStyle() : '#3a3f47'; ctx.fill();
+        ctx.lineWidth = 2; ctx.strokeStyle = P.line; ctx.stroke();
+      }
+    };
+    strip(268, PWM.lowHz, `Low frequency (${PWM.lowHz} Hz): frames flicker`);
+    strip(418, PWM.highHz, `High frequency (${fmt(PWM.highHz / 1000, 0)} kHz): frames steady`);
+    txt(ctx, 'Camera at 25 fps, 1/2000 s shutter', 1116, 540, { size: 13, color: P.faint });
+    card(ctx, 1110, 570, 410, 230, { fill: hexA(BRAND.accent, 0.1), stroke: hexA(BRAND.accent, 0.5), shadow: false });
+    txt(ctx, 'AV analogy', 1134, 606, { size: 14, weight: 700, color: P.muted });
+    wrap(ctx, 'Like display refresh vs. camera shutter: both can be fine alone and still fail together.', 1134, 640, 370, { size: 19, weight: 600 });
+  }
+}
+function drawTapeMethods(ctx, step) {
+  const h = table(ctx, 60, 140, 1480, [{ h: 'Tape type', w: 1.2, bold: true }, { h: 'Dimming method', w: 1, color: P.brandInk }, { h: 'Wrong pairing → what you see', w: 1.6 }, { h: 'Tested pairing', w: 0.9, muted: true }],
+    TAPE_METHODS.map(([a, b, c, d]) => [a, { t: b, bold: true, color: P.brandInk }, c, d]), { size: 21, reveal: Math.min(step, TAPE_METHODS.length), minRow: 120 });
+  if (step > TAPE_METHODS.length) {
+    const y = 140 + h + 40;
+    txt(ctx, 'The check, every job', 60, y, { size: 16, weight: 700, color: P.muted });
+    [['Tape type', 'from the spec sheet'], ['Required dimming method', 'CVR, PWM, multi-channel'], ['Supply or controller', 'that provides it']].forEach(([t, s], i) => {
+      fbox(ctx, 60 + i * 520, y + 20, 440, 100, t, s, { size: 22, bar: BRAND.primary });
+      if (i < 2) arrow(ctx, [[505 + i * 520, y + 70], [575 + i * 520, y + 70]], P.faint, { width: 4, head: 14 });
+    });
+  }
+}
+
+/* ---------- Advanced 1.3 — integration paths, dim-to-warm, sample wiring ---------- */
+const LINK = { control: { color: () => P.brandInk, dash: [10, 7], label: 'Control signal' }, line: { color: () => P.wire, dash: null, label: 'Line voltage (120V)' }, lv: { color: () => ZONE_COLORS[0], dash: null, label: 'Low voltage (24V DC)' } };
+function drawIntegration(ctx, step) {
+  const cols = [
+    { t: 'Wall dimmer / keypad system', s: 'e.g. Lutron or similar', when: 'Residential retrofit. Use what the client already has.',
+      boxes: [['Keypad / wall dimmer', 'phase-cut (ELV)'], ['Dimmed 120V circuit', 'switched leg'], ['Phase-cut-compatible supply', 'on the compatibility list'], ['LED tape', '24V DC']], links: ['line', 'line', 'lv'] },
+    { t: 'Control processor', s: 'e.g. Control4, Crestron, Savant', when: 'Whole-home systems with scenes, schedules and keypads.',
+      boxes: [['Control processor', 'scenes · schedules'], ['Dimmer · relay · gateway', 'DMX or 0-10V gateway'], ['Matching supply / driver', 'decoder or 0-10V driver'], ['LED tape', 'any type']], links: ['control', 'control', 'lv'] },
+    { t: 'Standalone DMX / DALI', s: 'larger or multi-zone work', when: 'Color, tunable white, many zones, or commercial networks.',
+      boxes: [['DMX or DALI controller', 'keypads · app · timeclock'], ['Decoder / DALI driver', 'addressed channels'], ['Constant-voltage supply', 'one per run'], ['LED tape', 'tunable white · RGB(W)']], links: ['control', 'lv', 'lv'] },
+  ];
+  let lx = 1540;
+  Object.values(LINK).slice().reverse().forEach((L) => { const w = txt(ctx, L.label, lx, 74, { size: 14, color: P.muted, align: 'right' }); line(ctx, [[lx - w - 50, 69], [lx - w - 12, 69]], { color: L.color(), width: 4, dash: L.dash }); lx -= w + 70; });
+  cols.forEach((c, i) => {
+    const x = 60 + i * 500, w = 480;
+    if (step < i + 1) { ghost(ctx, x, 140, w, 650); txt(ctx, c.t, x + 24, 184, { size: 22, weight: 700, color: P.faint }); return; }
+    card(ctx, x, 140, w, 650);
+    txt(ctx, c.t, x + 24, 184, { size: 23, weight: 700 }); txt(ctx, c.s, x + 24, 212, { size: 16, color: P.muted });
+    c.boxes.forEach(([t, s], k) => {
+      const by = 250 + k * 118;
+      fbox(ctx, x + 40, by, w - 80, 80, t, s, { size: 19, bar: k === 3 ? ZONE_COLORS[0] : BRAND.primary });
+      if (k < 3) { const L = LINK[c.links[k]]; arrow(ctx, [[x + w / 2, by + 82], [x + w / 2, by + 114]], L.color(), { width: 4, dash: L.dash, head: 12 }); }
+    });
+    line(ctx, [[x + 24, 728], [x + w - 24, 728]], { color: P.line, width: 1 });
+    wrap(ctx, `Use when: ${c.when}`, x + 24, 758, w - 48, { size: 16, color: P.ink });
+  });
+  if (step >= 4) {
+    card(ctx, 60, 808, 1480, 50, { fill: hexA(BRAND.primary, 0.08), stroke: hexA(BRAND.primary, 0.4), shadow: false, r: 10 });
+    txt(ctx, 'Decision rule: use what the client already has, and add a gateway when the project needs more than the existing dimmers can do.', 800, 839, { size: 17, weight: 600, align: 'center', maxW: 1440 });
+  }
+}
+function drawDimToWarm(ctx, step) {
+  card(ctx, 60, 140, 720, 700);
+  const X0 = 150, X1 = 740, Y0 = 200, Y1 = 740, kMin = 1600, kMax = Math.max(DTW.twMaxK, 6500), xl = (lvl) => X0 + (1 - lvl) * (X1 - X0), yk = (K) => Y1 - (K - kMin) / (kMax - kMin) * (Y1 - Y0);
+  [2000, 3000, 4000, 5000, 6000].forEach((K) => { line(ctx, [[X0, yk(K)], [X1, yk(K)]], { color: P.line, width: 1 }); txt(ctx, `${K}K`, X0 - 12, yk(K) + 5, { size: 14, color: P.muted, align: 'right' }); });
+  [1, 0.75, 0.5, 0.25, 0].forEach((l) => txt(ctx, `${Math.round(l * 100)}%`, xl(l), Y1 + 26, { size: 14, color: P.muted, align: 'center' }));
+  txt(ctx, 'Dim level →', (X0 + X1) / 2, Y1 + 56, { size: 15, weight: 600, color: P.muted, align: 'center' });
+  txt(ctx, 'Color temperature', X0, Y0 - 22, { size: 15, weight: 600, color: P.muted });
+  const dtwK = (l) => DTW.dimK + (DTW.fullK - DTW.dimK) * Math.sqrt(l);
+  if (step >= 2) {
+    ctx.fillStyle = hexA('#2F7CF6', 0.08); ctx.fillRect(X0, yk(DTW.twMaxK), X1 - X0, yk(DTW.twMinK) - yk(DTW.twMaxK));
+    txt(ctx, 'Tunable white: any CCT at any level', X1 - 14, yk(DTW.twMaxK) + 28, { size: 16, weight: 700, color: '#2F7CF6', align: 'right' });
+    txt(ctx, `${DTW.twMinK}–${DTW.twMaxK}K range`, X1 - 14, yk(DTW.twMaxK) + 52, { size: 14, color: P.muted, align: 'right' });
+    ctx.beginPath(); for (let i = 0; i <= 50; i++) { const l = 1 - i / 50, K = Math.max(DTW.twMinK, dtwK(l)); i ? ctx.lineTo(xl(l), yk(K)) : ctx.moveTo(xl(l), yk(K)); }
+    ctx.strokeStyle = '#2F7CF6'; ctx.lineWidth = 3; ctx.setLineDash([8, 7]); ctx.stroke(); ctx.setLineDash([]);
+    txt(ctx, 'Programmed warm-dim curve (stops at the tape’s warmest CCT)', xl(0.98), yk(DTW.twMinK) - 14, { size: 14, color: '#2F7CF6' });
+  }
+  for (let i = 0; i < 60; i++) { const a = 1 - i / 60, b = 1 - (i + 1) / 60; line(ctx, [[xl(a), yk(dtwK(a))], [xl(b), yk(dtwK(b))]], { color: kelvinColor(dtwK(a)), width: 8 }); }
+  pill(ctx, `Dim-to-warm: ${DTW.fullK}K → ${DTW.dimK}K`, xl(0.55), yk(dtwK(0.55)) + 34, { bg: P.warn, color: '#fff', size: 15, align: 'center' });
+  pill(ctx, `${DTW.fullK}K`, xl(1) + 8, yk(DTW.fullK) - 22, { bg: P.card, stroke: P.line, size: 13 });
+  pill(ctx, `${DTW.dimK}K`, xl(0.02), yk(DTW.dimK) - 22, { bg: P.card, stroke: P.line, size: 13, align: 'right' });
+  if (step >= 3) {
+    table(ctx, 810, 140, 730, [{ h: '', w: 0.8, bold: true }, { h: `Dim-to-warm (single input)`, w: 1.2, color: P.warn }, { h: 'Tunable white (two-channel)', w: 1.2, color: '#2F7CF6' }], DTW_TABLE, { size: 18, minRow: 92 });
+    txt(ctx, `Dedicated solution: ${DTW.product}`, 810, 830, { size: 15, color: P.muted });
+  }
+}
+function drawSampleWiring(ctx, step) {
+  pill(ctx, '[Replace with your Lutron / DMX project drawing]', 1540, 72, { bg: P.soft, size: 15, align: 'right', color: P.muted });
+  const Z = ZONE_COLORS;
+  // power path
+  fbox(ctx, 70, 170, 200, 110, 'Breaker panel', '[Ckt 12 · 15A]', { size: 20 });
+  fbox(ctx, 380, 170, 230, 90, 'Supply B · [96 W]', '24V DC · Class 2', { size: 18, bar: Z[1] });
+  fbox(ctx, 380, 330, 230, 90, 'Supply A · [150 W]', '24V DC · Class 2', { size: 18, bar: Z[0] });
+  arrow(ctx, [[270, 205], [378, 205]], P.wire, { width: 4 }); arrow(ctx, [[270, 250], [320, 250], [320, 375], [378, 375]], P.wire, { width: 4 });
+  txt(ctx, '120V', 300, 196, { size: 13, color: P.muted, align: 'center' });
+  // decoders + tape
+  fbox(ctx, 740, 170, 250, 90, 'Decoder 2 · 1 ch', `DMX ${pad3(3)}`, { size: 18, bar: BRAND.primary });
+  fbox(ctx, 740, 330, 250, 90, 'Decoder 1 · 2 ch TW', `DMX ${pad3(1)}–${pad3(2)}`, { size: 18, bar: BRAND.primary });
+  arrow(ctx, [[610, 215], [738, 215]], Z[1], { width: 4 }); arrow(ctx, [[610, 375], [738, 375]], Z[0], { width: 4 });
+  txt(ctx, '24V in', 674, 206, { size: 13, color: P.muted, align: 'center' }); txt(ctx, '24V in', 674, 366, { size: 13, color: P.muted, align: 'center' });
+  if (step >= 2) {
+    fbox(ctx, 70, 560, 200, 90, 'Keypad', '[keypad model]', { size: 20 });
+    fbox(ctx, 70, 700, 200, 100, 'Control processor', '[processor model]', { size: 19 });
+    fbox(ctx, 380, 620, 230, 100, 'DMX gateway', '[model] · Universe 1', { size: 19, bar: BRAND.primary });
+    arrow(ctx, [[170, 652], [170, 698]], P.brand, { dash: [8, 6], width: 3 });
+    arrow(ctx, [[272, 750], [330, 750], [330, 670], [378, 670]], P.brand, { dash: [8, 6], width: 3 });
+    txt(ctx, '[IP / RS-485]', 300, 770, { size: 13, color: P.muted });
+    arrow(ctx, [[612, 670], [865, 670], [865, 424]], P.brand, { dash: [8, 6], width: 3.5 });
+    arrow(ctx, [[865, 328], [865, 264]], P.brand, { dash: [8, 6], width: 3.5 });
+    txt(ctx, 'DMX daisy chain', 880, 560, { size: 15, weight: 700, color: P.brandInk });
+    pill(ctx, `${DMX.terminatorOhms} Ω terminator`, 992, 150, { bg: BRAND.accent, color: '#1b222b', size: 14, align: 'right' });
+  }
+  if (step >= 3) {
+    const tape = (y, color, name, chans) => {
+      chans.forEach((c, i) => arrow(ctx, [[992, y + 30 + i * 30], [1090, y + 30 + i * 30]], color, { width: 3.5 }));
+      chans.forEach((c, i) => txt(ctx, c, 1040, y + 24 + i * 30, { size: 12, color: P.muted, align: 'center' }));
+      drawStrip(ctx, 1100, y + 32, 400, 16, () => 1);
+      txt(ctx, name, 1100, y + 14, { size: 17, weight: 700, color });
+    };
+    tape(170, Z[1], 'Kitchen under-cabinet', ['CH 1']);
+    tape(330, Z[0], 'Living cove · tunable white', ['Warm', 'Cool']);
+    card(ctx, 1080, 560, 460, 240);
+    txt(ctx, 'Project notes', 1106, 600, { size: 18, weight: 700 });
+    let y = 640;
+    ['[Project name / address]', '[Universe + address map attached]', '[Who programs scenes · default levels]', '[Compatibility checks on file]'].forEach((t) => { y += bullet(ctx, 1106, y, t, 410, { size: 16 }) + 6; });
+  }
+}
+
+/* ---------- Advanced 2.1 — optics & hotspotting ---------- */
+/** Relative luminance across the diffuser for an optics case (Lambertian LEDs + diffuser blur). */
+function opticsProfile(c, n = 240, spanMm) {
+  const d = c.depth, p = c.pitch, D = DIFFUSERS[c.diffuser] || DIFFUSERS.frosted, span = spanMm || p * 4;
+  const raw = (x) => { let s = 0; for (let k = -60; k <= 60; k++) { const dx = x - k * p; s += (d * d * d * d) / Math.pow(d * d + dx * dx, 2); } return s; };
+  const sigma = D.blur * d + 0.2, taps = [];
+  for (let t = -12; t <= 12; t++) taps.push([t * sigma / 4, Math.exp(-(t / 4) * (t / 4) / 2)]);
+  const wsum = taps.reduce((s, t) => s + t[1], 0);
+  const vals = []; for (let i = 0; i < n; i++) { const x = span * i / (n - 1); vals.push(taps.reduce((s, [o, w]) => s + raw(x + o) * w, 0) / wsum); }
+  const max = Math.max(...vals), min = Math.min(...vals);
+  return { vals: vals.map((v) => v / max), ripple: (max - min) / max, trans: D.trans };
+}
+const rippleVerdict = (r) => (r < 0.04 ? ['Smooth line', 'good'] : r < 0.12 ? ['Slight dots', 'warn'] : ['Visible hotspots', 'bad']);
+function drawMixing(ctx, step) {
+  const c = OPTICS_CASES[Number(visualOpts(currentVisual()).case) || 0] || OPTICS_CASES[0];
+  const s = Math.min(14, 1040 / (c.pitch * 4.5)), x0 = 120, base = 640, dpx = c.depth * s, nLed = Math.floor(1000 / (c.pitch * s)) + 1;
+  card(ctx, 60, 140, 1060, 700);
+  txt(ctx, `Longitudinal section · ${c.label}`, 90, 182, { size: 20, weight: 700 });
+  // channel floor & diffuser
+  ctx.fillStyle = P.channel; ctx.fillRect(x0, base, 1000, 14);
+  ctx.fillStyle = P.pcb; ctx.fillRect(x0, base - 6, 1000, 6);
+  const dy = base - dpx;
+  ctx.save(); ctx.beginPath(); ctx.rect(x0, dy, 1000, dpx); ctx.clip();
+  for (let i = 0; i < nLed; i++) {
+    const lx = x0 + 20 + i * c.pitch * s;
+    const g = ctx.createRadialGradient(lx, base - 8, 2, lx, base - 8, dpx * 1.5);
+    g.addColorStop(0, hexA(CCT_COLORS[state.cct], 0.55)); g.addColorStop(1, hexA(CCT_COLORS[state.cct], 0));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(lx, base - 8); ctx.lineTo(lx - dpx * 1.7, dy); ctx.lineTo(lx + dpx * 1.7, dy); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+  for (let i = 0; i < nLed; i++) { const lx = x0 + 20 + i * c.pitch * s; ctx.fillStyle = '#f2c94c'; ctx.fillRect(lx - Math.max(3, 1.5 * s), base - 6 - Math.max(3, 0.8 * s), Math.max(6, 3 * s), Math.max(3, 0.8 * s)); }
+  const dfH = 10; ctx.fillStyle = c.diffuser === 'clear' ? hexA('#cfe3f3', 0.7) : c.diffuser === 'opal' ? '#f4f4f2' : hexA('#ffffff', 0.85);
+  ctx.fillRect(x0, dy - dfH, 1000, dfH); ctx.strokeStyle = P.faint; ctx.lineWidth = 1.5; ctx.strokeRect(x0, dy - dfH, 1000, dfH);
+  // luminance profile above the diffuser
+  const prof = opticsProfile(c, 400, 1000 / s), py0 = dy - dfH - 20, ph = 110;
+  ctx.beginPath(); prof.vals.forEach((v, i) => { const X = x0 + 20 + i * 1000 / 400 - 20, Y = py0 - v * ph; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
+  ctx.strokeStyle = P.warn; ctx.lineWidth = 3; ctx.stroke();
+  const [vt, vk] = rippleVerdict(prof.ripple);
+  pill(ctx, `Brightness across the lens · ripple ${Math.round(prof.ripple * 100)}% · ${vt}`, x0, py0 - ph - 20, { bg: P[vk], color: '#fff', size: 15 });
+  if (step >= 2) {
+    const ax = x0 + 20 + c.pitch * s, bx = ax + c.pitch * s;
+    dimH(ctx, ax, Math.min(bx, x0 + 980), base + 52, `LED pitch ${fmt(c.pitch, 1)} mm`, { size: 15 });
+    const vx = x0 + 1000 - 30; line(ctx, [[vx, base - 6], [vx, dy]], { color: P.muted, width: 1.5 });
+    [base - 6, dy].forEach((y) => line(ctx, [[vx - 10, y], [vx + 10, y]], { color: P.muted, width: 2 }));
+    pill(ctx, `Mixing distance ${fmt(c.depth, 1)} mm`, vx - 14, (base + dy) / 2, { bg: P.card, stroke: P.muted, size: 15, align: 'right' });
+    pill(ctx, `${(DIFFUSERS[c.diffuser] || {}).name} diffuser · ${Math.round(prof.trans * 100)}% transmission`, x0, dy - dfH - 6 + 0, { bg: P.card, stroke: P.line, size: 13 });
+    txt(ctx, 'LED tape on the channel floor', x0, base + 100, { size: 14, color: P.muted });
+  }
+  if (step >= 3) {
+    [['LED density (pitch)', 'Lower density needs more depth or a more opaque diffuser.'], ['Distance to the diffuser', 'More depth = more mixing. High-density / COB can go shallower.'], ['Diffuser type', 'Clear → frosted → opal: smoother, but less output.']].forEach(([t, d], i) => {
+      card(ctx, 1150, 140 + i * 180, 390, 164);
+      badge(ctx, i + 1, 1186, 182 + i * 180, 18);
+      txt(ctx, t, 1214, 190 + i * 180, { size: 20, weight: 700, maxW: 310 });
+      wrap(ctx, d, 1176, 232 + i * 180, 340, { size: 17, color: P.muted });
+    });
+    card(ctx, 1150, 690, 390, 150, { fill: hexA(BRAND.accent, 0.1), stroke: hexA(BRAND.accent, 0.5), shadow: false });
+    txt(ctx, 'Change one, compensate the others', 1176, 728, { size: 17, weight: 700 });
+    wrap(ctx, 'Validate against your own mockups [your tested depth numbers].', 1176, 762, 340, { size: 16, color: P.muted });
+  }
+}
+function drawHotspots(ctx, step) {
+  OPTICS_CASES.forEach((c, i) => {
+    const col = i % 2, row = Math.floor(i / 2), x = 60 + col * 750, y = 140 + row * 236, w = 730, h = 216;
+    if (step < i + 1) { ghost(ctx, x, y, w, h); txt(ctx, c.label, x + 24, y + 40, { size: 20, weight: 700, color: P.faint }); return; }
+    const prof = opticsProfile(c, 340, 100), [vt, vk] = rippleVerdict(prof.ripple);
+    card(ctx, x, y, w, h, { stroke: step === i + 1 ? P.brand : P.cardLine, lw: step === i + 1 ? 2.5 : 1.5 });
+    txt(ctx, c.label, x + 24, y + 40, { size: 20, weight: 700, maxW: w - 220 });
+    pill(ctx, vt, x + w - 22, y + 34, { bg: P[vk], color: '#fff', size: 14, align: 'right' });
+    const sx = x + 24, sw = w - 48, sy = y + 66;
+    roundRect(ctx, sx - 5, sy - 5, sw + 10, 46, 6); ctx.fillStyle = P.channel; ctx.fill();
+    prof.vals.forEach((v, k) => { ctx.fillStyle = litColor(clamp(v * (0.55 + 0.45 * prof.trans / 0.92), 0, 1)).getStyle(); ctx.fillRect(sx + k * sw / prof.vals.length, sy, sw / prof.vals.length + 0.7, 36); });
+    txt(ctx, `Ripple ${Math.round(prof.ripple * 100)}% · output ≈${Math.round(prof.trans * 100)}% · 100 mm shown`, x + 24, y + 140, { size: 15, color: P.muted });
+    if (c.fix && vk !== 'good') txt(ctx, `Fix: ${c.fix}`, x + 24, y + 176, { size: 17, weight: 700, color: P[vk], maxW: w - 48 });
+    else txt(ctx, 'Good: no fix needed', x + 24, y + 176, { size: 17, weight: 700, color: P.good });
+  });
+}
+
+/* ---------- Advanced 2.2 — thermal ---------- */
+function drawThermal(ctx, step) {
+  card(ctx, 60, 140, 960, 700);
+  txt(ctx, 'Tape temperature, same high-output tape (illustrative)', 90, 182, { size: 20, weight: 700 });
+  const X0 = 90, X1 = 980, maxC = Math.max(100, ...THERMAL.cases.map((c) => c[1]) ) + 5, X = (cdeg) => X0 + 330 + (cdeg / maxC) * (X1 - X0 - 330);
+  THERMAL.cases.forEach(([name, t], i) => {
+    const y = 230 + i * 110;
+    wrap(ctx, name, X0, y + 22, 310, { size: 17, weight: 600 });
+    const over = t > THERMAL.limitC, near = t > THERMAL.limitC - 6;
+    roundRect(ctx, X(0), y, X(t) - X(0), 46, 6); ctx.fillStyle = step >= 2 ? (over ? P.bad : near ? P.warn : P.good) : P.brand; ctx.fill();
+    txt(ctx, `${t} °C`, X(t) + 10, y + 30, { size: 18, weight: 700 });
+  });
+  if (step >= 2) {
+    line(ctx, [[X(THERMAL.limitC), 214], [X(THERMAL.limitC), 790]], { color: P.bad, width: 2.5, dash: [8, 6] });
+    pill(ctx, `Tape limit [${THERMAL.limitC} °C]`, X(THERMAL.limitC), 806, { bg: P.bad, color: '#fff', size: 14, align: 'center' });
+  }
+  if (step >= 3) {
+    table(ctx, 1050, 140, 490, [{ h: 'Profile type', w: 1.3, bold: true }, { h: 'Max W/ft', w: 0.8, color: P.brandInk }], THERMAL.maxWPerFt.map(([a, b]) => [a, { t: b, bold: true, color: P.brandInk }]), { size: 17, minRow: 50 });
+    card(ctx, 1050, 640, 490, 200, { fill: hexA(P.warn, 0.08), stroke: hexA(P.warn, 0.5), shadow: false });
+    let y = 680;
+    ['Aluminum channel with real contact to the tape', 'Sealed coves, insulated soffits, cabinets: derate or go larger', 'Adhesive rating + surface prep: failure shows as lifting tape'].forEach((t) => { y += bullet(ctx, 1074, y, t, 450, { size: 16, dot: P.warn }) + 6; });
+  }
+}
+
+/* ---------- Advanced 2.3 — mud-in & knife-edge sections, matrix, install sequence ---------- */
+/** Mud-in ceiling section. (cx, Yf) = profile center at the drywall face; s = px per mm; stage 1..4. */
+function drawMudSection(ctx, cx, Yf, s, stage, labels) {
+  const dw = 15.9 * s, half = 12.5 * s, depth = 20 * s, fl = 22 * s, wall = 1.4 * s, comp = 2.5 * s;
+  const L = cx - half - fl - 30 * s, R = cx + half + fl + 30 * s;
+  // joists / blocking
+  ctx.fillStyle = '#d8c7a6'; [[L, Yf - dw - 38 * s, 14 * s, 38 * s], [R - 14 * s, Yf - dw - 38 * s, 14 * s, 38 * s]].forEach(([x, y, w, h]) => { ctx.fillRect(x, y, w, h); hatch(ctx, x, y, w, h, '#a8875a'); });
+  if (stage >= 2) {
+    ctx.fillStyle = '#e6e3dc'; ctx.fillRect(L, Yf - dw, cx - half - L, dw); ctx.fillRect(cx + half, Yf - dw, R - cx - half, dw);
+    ctx.fillStyle = '#9aa0a8'; for (let x = L + 6; x < R; x += 14) { if (x > cx - half - 2 && x < cx + half + 2) continue; ctx.fillRect(x, Yf - dw / 2, 2, 2); }
+    ctx.fillStyle = '#b9c0c9';
+    ctx.fillRect(cx - half, Yf - depth, wall, depth + comp); ctx.fillRect(cx + half - wall, Yf - depth, wall, depth + comp); ctx.fillRect(cx - half, Yf - depth, half * 2, wall);
+    ctx.fillRect(cx - half - fl, Yf, fl, 1.2 * s); ctx.fillRect(cx + half, Yf, fl, 1.2 * s);
+    ctx.fillStyle = '#8e959e'; for (let x = cx - half - fl + 5; x < cx - half - 3; x += 9) ctx.fillRect(x, Yf + 0.3 * s, 3, 0.6 * s);
+    for (let x = cx + half + 4; x < cx + half + fl - 3; x += 9) ctx.fillRect(x, Yf + 0.3 * s, 3, 0.6 * s);
+  }
+  if (stage >= 3) {
+    ctx.fillStyle = '#f1efe9'; ctx.beginPath(); ctx.moveTo(L + 10 * s, Yf); ctx.lineTo(cx - half, Yf); ctx.lineTo(cx - half, Yf + comp); ctx.lineTo(cx - half - fl - 14 * s, Yf + comp * 0.6); ctx.lineTo(L + 10 * s, Yf + 0.2); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(R - 10 * s, Yf); ctx.lineTo(cx + half, Yf); ctx.lineTo(cx + half, Yf + comp); ctx.lineTo(cx + half + fl + 14 * s, Yf + comp * 0.6); ctx.lineTo(R - 10 * s, Yf + 0.2); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = P.faint; ctx.lineWidth = 1; ctx.stroke();
+  }
+  if (stage >= 4) {
+    ctx.fillStyle = P.pcb; ctx.fillRect(cx - 5 * s, Yf - depth + wall, 10 * s, 0.6 * s);
+    ctx.fillStyle = '#f2c94c'; ctx.fillRect(cx - 1.5 * s, Yf - depth + wall + 0.6 * s, 3 * s, 0.9 * s);
+    ctx.fillStyle = '#f7f7f4'; ctx.fillRect(cx - half + wall, Yf + comp - 1.6 * s, half * 2 - wall * 2, 1.6 * s);
+    if (lightLevel() > 0) {
+      const g = ctx.createLinearGradient(0, Yf + comp, 0, Yf + comp + 120); g.addColorStop(0, hexA(CCT_COLORS[state.cct], 0.6 * Math.min(1, lightLevel()))); g.addColorStop(1, hexA(CCT_COLORS[state.cct], 0));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(cx - half + wall, Yf + comp); ctx.lineTo(cx + half - wall, Yf + comp); ctx.lineTo(cx + half + 90, Yf + comp + 120); ctx.lineTo(cx - half - 90, Yf + comp + 120); ctx.closePath(); ctx.fill();
+    }
+  }
+  if (labels) {
+    const lab = (x, y, tx, ty, t, al) => { line(ctx, [[x, y], [tx, ty]], { color: P.muted, width: 1.3 }); ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fillStyle = P.ink; ctx.fill(); pill(ctx, t, tx, ty, { bg: P.card, stroke: P.line, size: 14, align: al || (tx < x ? 'right' : 'left') }); };
+    const vx = L + 34 * s; line(ctx, [[vx, Yf - dw], [vx, Yf]], { color: P.ink, width: 1.5 }); [Yf - dw, Yf].forEach((y) => line(ctx, [[vx - 8, y], [vx + 8, y]], { color: P.ink, width: 2 }));
+    pill(ctx, '5/8″ drywall', vx - 12, Yf - dw / 2, { bg: P.card, stroke: P.muted, size: 13, align: 'right' });
+    lab(cx - half - fl * 0.5, Yf + 0.6 * s, L + 6, Yf + 100, 'Mud flange (taped & mudded)', 'left');
+    lab(cx + half + fl * 0.8, Yf + comp * 0.5, cx + half + 30, Yf + 70, 'Joint compound');
+    lab(cx, Yf + comp - 0.8 * s, cx - 20, Yf + 150, 'Diffuser flush with the finished surface', 'left');
+    lab(cx + 1.5 * s, Yf - depth + wall + 1 * s, cx + half + 40, Yf - depth - 30, 'LED tape in the channel');
+    line(ctx, [[L, Yf + comp], [R, Yf + comp]], { color: P.faint, width: 1, dash: [4, 6] });
+  }
+}
+function drawSections(ctx, step) {
+  card(ctx, 60, 140, 720, 560);
+  txt(ctx, 'Mud-in (finished into drywall)', 88, 182, { size: 22, weight: 700 });
+  drawMudSection(ctx, 420, 470, 4.3, 4, true);
+  if (step >= 2) {
+    card(ctx, 820, 140, 720, 560);
+    txt(ctx, 'Knife-edge cove', 848, 182, { size: 22, weight: 700 });
+    const wx = 880, cy0 = 230;
+    ctx.fillStyle = '#e6e3dc'; ctx.fillRect(wx, cy0, 30, 450); ctx.fillRect(wx, cy0, 640, 26);
+    ctx.fillStyle = '#e6e3dc'; ctx.beginPath(); ctx.moveTo(wx + 30, 360); ctx.lineTo(wx + 330, 360); ctx.lineTo(wx + 360, 372); ctx.lineTo(wx + 330, 384); ctx.lineTo(wx + 30, 400); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = P.faint; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#b9c0c9'; ctx.fillRect(wx + 250, 342, 40, 18);
+    ctx.fillStyle = '#f7f7f4'; ctx.fillRect(wx + 252, 340, 36, 4);
+    if (lightLevel() > 0) {
+      const g = ctx.createLinearGradient(wx + 270, 340, wx + 560, cy0 + 26); g.addColorStop(0, hexA(CCT_COLORS[state.cct], 0.6)); g.addColorStop(1, hexA(CCT_COLORS[state.cct], 0));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(wx + 255, 340); ctx.lineTo(wx + 290, 340); ctx.lineTo(wx + 640, cy0 + 26); ctx.lineTo(wx + 120, cy0 + 26); ctx.closePath(); ctx.fill();
+    }
+    const lab = (x, y, tx, ty, t) => { line(ctx, [[x, y], [tx, ty]], { color: P.muted, width: 1.3 }); ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fillStyle = P.ink; ctx.fill(); pill(ctx, t, tx, ty, { bg: P.card, stroke: P.line, size: 14, align: tx < x ? 'right' : 'left' }); };
+    lab(wx + 270, 352, wx + 140, 470, 'Slim profile');
+    lab(wx + 355, 372, wx + 420, 470, 'Knife edge (shadow gap)');
+    lab(wx + 520, cy0 + 28, wx + 560, 300, 'Ceiling wash');
+    dimH(ctx, wx + 270, wx + 360, 420, 'Setback', { size: 13 });
+    txt(ctx, 'Wall', wx + 15, 660, { size: 14, color: P.muted, align: 'center' });
+    txt(ctx, 'Install sequence: [your installation documentation]', 848, 680, { size: 15, color: P.muted });
+  }
+  if (step >= 3) {
+    [['Coordinate first', 'Check flange depth against 5/8″ drywall, and talk to the drywall finisher before the profile goes in.'],
+     ['Wet & outdoor', 'Right IP rating, corrosion-resistant finish, and thermal expansion on long outdoor runs.'],
+     ['Service access', 'Ask how you’ll replace the tape in ten years.']].forEach(([t, d], i) => {
+      card(ctx, 60 + i * 500, 720, 480, 130);
+      txt(ctx, t, 84 + i * 500, 756, { size: 19, weight: 700 });
+      wrap(ctx, d, 84 + i * 500, 788, 430, { size: 16, color: P.muted });
+    });
+  }
+}
+function drawProfileMatrix(ctx, step) {
+  table(ctx, 60, 140, 1480, [{ h: 'Application', w: 1, bold: true }, { h: 'Surface', w: 1 }, { h: 'Output', w: 0.8 }, { h: 'Diffuser', w: 0.9 }, { h: 'Recommended profile family', w: 1.2, color: P.brandInk }],
+    PROFILE_MATRIX.map((r) => [...r.slice(0, 4), { t: r[4], bold: true, color: P.brandInk }]), { size: 20, reveal: step, minRow: 96 });
+}
+function drawInstallSeq(ctx, step) {
+  [['Framing', 'Blocking set for the profile run'], ['Profile', 'Drywall hung; profile set, flanges on the face'], ['Finishing', 'Taped and mudded over the flanges, sanded'], ['Final', 'Tape and diffuser installed, tested']].forEach(([t, d], i) => {
+    const x = 60 + i * 375, w = 355;
+    if (step < i + 1) { ghost(ctx, x, 140, w, 640); txt(ctx, `${i + 1} · ${t}`, x + 24, 182, { size: 22, weight: 700, color: P.faint }); return; }
+    card(ctx, x, 140, w, 640, { stroke: step === i + 1 ? P.brand : P.cardLine, lw: step === i + 1 ? 2.5 : 1.5 });
+    txt(ctx, `${i + 1} · ${t}`, x + 24, 182, { size: 22, weight: 700 });
+    ctx.save(); ctx.beginPath(); ctx.rect(x + 4, 200, w - 8, 440); ctx.clip();
+    drawMudSection(ctx, x + w / 2, 440, 3.2, i + 1, false);
+    ctx.restore();
+    wrap(ctx, d, x + 24, 690, w - 48, { size: 18, color: P.muted });
+  });
+  txt(ctx, '[Replace with installed photos at each stage]', 60, 820, { size: 15, color: P.muted });
+}
+
+/* ---------- Advanced 3.1 — zoning ---------- */
+function drawZoning(ctx, step) {
+  pill(ctx, 'One zone = one independent dimming or color channel', 1540, 72, { bg: BRAND.primary, color: '#fff', size: 15, align: 'right' });
+  const Z = dmxPlan(), x0 = 60, w = 1480, lw = 230, cw = (w - lw - 20) / Z.length, rh = 50, y0 = 140;
+  card(ctx, x0, y0, w, 64 + rh * SCENES.length + 10);
+  txt(ctx, 'Client scenes →', x0 + 20, y0 + 40, { size: 15, weight: 700, color: P.muted });
+  Z.forEach((z, j) => txt(ctx, z.name, x0 + lw + j * cw + cw / 2, y0 + 40, { size: 15, weight: 700, align: 'center', maxW: cw - 10, color: ZONE_COLORS[j % ZONE_COLORS.length] }));
+  SCENES.forEach((sc, i) => {
+    const y = y0 + 60 + i * rh;
+    txt(ctx, sc.name, x0 + 20, y + rh / 2 + 6, { size: 18, weight: 700 });
+    sc.levels.forEach((lv, j) => {
+      if (j >= Z.length) return;
+      const x = x0 + lw + j * cw;
+      roundRect(ctx, x + 4, y + 4, cw - 8, rh - 8, 6); ctx.fillStyle = lv ? hexA(CCT_COLORS[state.cct], 0.18 + 0.82 * lv / 100) : P.soft; ctx.fill();
+      txt(ctx, lv ? `${lv}%` : 'off', x + cw / 2, y + rh / 2 + 6, { size: 15, weight: 700, align: 'center', color: lv ? '#1b222b' : P.faint });
+    });
+  });
+  if (step >= 2) {
+    const ty = y0 + 64 + rh * SCENES.length + 40;
+    table(ctx, 60, ty, 1480, [{ h: 'Zone', w: 1.3, bold: true }, { h: 'Length', w: 0.6 }, { h: 'Load', w: 0.6 }, { h: 'Supply', w: 0.6 }, { h: 'Protocol', w: 1 }, { h: 'Channels', w: 0.9 }, { h: 'Control address', w: 0.9, color: P.brandInk }],
+      Z.map((z, j) => [{ t: z.name, color: ZONE_COLORS[j % ZONE_COLORS.length], bold: true }, `${fmt(z.lenFt)} ft`, `${fmt(z.load)} W`, z.supply ? `${z.supply} W` : 'split run', z.protocol, `${TYPE_NAME[z.type]}${z.count > 1 ? ` × ${z.count}` : ''}`, { t: z.start ? `DMX ${pad3(z.start)}–${pad3(z.end)}` : '[Dimmer D1]', bold: true, color: P.brandInk }]),
+      { size: 16, padY: 9, minRow: 40 });
+  }
+}
+
+/* ---------- Advanced 3.2 — protocols ---------- */
+function drawProtocols(ctx, step) {
+  const h = table(ctx, 60, 140, 1480, [{ h: 'Protocol', w: 0.9, bold: true }, { h: 'Best for', w: 1.4 }, { h: 'Watch-out', w: 1.6 }], PROTOCOLS, { size: 21, reveal: Math.min(step, PROTOCOLS.length), minRow: 96 });
+  if (step > PROTOCOLS.length) {
+    card(ctx, 60, 140 + h + 24, 1480, 90, { fill: hexA(BRAND.primary, 0.08), stroke: hexA(BRAND.primary, 0.4), shadow: false });
+    txt(ctx, 'Choose by project, not by habit: retrofits stay phase-cut; color or many zones move to DMX or DALI.', 800, 140 + h + 78, { size: 21, weight: 700, align: 'center', maxW: 1420 });
+  }
+}
+function drawDecisionTree(ctx, step) {
+  const qs = [['Existing wall dimmers?', 'Phase-cut', 'ELV / TRIAC'], ['Commercial, single-channel?', '0-10V', 'check sink rating'], ['Color or multi-zone?', 'DMX512', 'decoders + address map'], ['Networked commercial?', 'DALI-2', 'DALI drivers + commissioning']];
+  fbox(ctx, 60, 300, 170, 110, 'New project', 'start here', { size: 20, fill: P.soft });
+  qs.forEach(([q, a, s], i) => {
+    const x = 290 + i * 315, y = 290;
+    if (step < i + 1) { ghost(ctx, x, y, 270, 130); return; }
+    arrow(ctx, [[i === 0 ? 232 : x - 43, 355], [x - 4, 355]], P.faint, { width: 4, head: 14 });
+    if (i > 0) txt(ctx, 'No', x - 30, 340, { size: 15, weight: 700, color: P.muted, align: 'center' });
+    card(ctx, x, y, 270, 130, { stroke: P.brand, lw: 2.5, r: 18 });
+    txt(ctx, '?', x + 30, y + 74, { size: 40, weight: 800, color: hexA(BRAND.primary, 0.3), align: 'center' });
+    wrap(ctx, q, x + 58, y + 58, 200, { size: 21, weight: 700 });
+    arrow(ctx, [[x + 135, y + 132], [x + 135, 552]], P.good, { width: 4, head: 14 });
+    txt(ctx, 'Yes', x + 150, 500, { size: 15, weight: 700, color: P.good });
+    fbox(ctx, x, 556, 270, 120, a, s, { size: 26, bar: P.good });
+  });
+  if (step >= 5) {
+    card(ctx, 60, 720, 1480, 120, { fill: hexA(BRAND.accent, 0.1), stroke: hexA(BRAND.accent, 0.5), shadow: false });
+    txt(ctx, 'None of the above?', 90, 764, { size: 20, weight: 700 });
+    wrap(ctx, 'Direct low-voltage tape control: a PWM controller matched to the tape type (check PWM frequency). Otherwise, send us the project: [your contact].', 90, 798, 1420, { size: 18, color: P.muted });
+  }
+}
+
+/* ---------- Advanced 3.3 — DMX addressing & topology ---------- */
+function drawDmxMap(ctx, step) {
+  const Z = dmxPlan().filter((z) => z.start), used = Z.length ? Z[Z.length - 1].end : 0;
+  // channel-count legend
+  Object.entries(CH_PER).forEach(([k, n], i) => {
+    const x = 60 + i * 375;
+    card(ctx, x, 140, 355, 110);
+    txt(ctx, TYPE_NAME[k], x + 22, 180, { size: 20, weight: 700 });
+    const chLab = { single: ['Dim'], tw: ['Warm', 'Cool'], rgb: ['R', 'G', 'B'], rgbw: ['R', 'G', 'B', 'W'] }[k];
+    for (let c = 0; c < n; c++) { roundRect(ctx, x + 22 + c * 52, 196, 46, 34, 6); ctx.fillStyle = TYPE_COLOR[k]; ctx.fill(); txt(ctx, chLab[c], x + 45 + c * 52, 218, { size: 12, weight: 700, color: '#fff', align: 'center' }); }
+    txt(ctx, `${n} ch`, x + 333, 222, { size: 22, weight: 700, color: TYPE_COLOR[k], align: 'right' });
+  });
+  if (step >= 2) {
+    table(ctx, 60, 280, 700, [{ h: 'Fixture / zone', w: 1.4, bold: true }, { h: 'Type', w: 1 }, { h: 'Ch', w: 0.4 }, { h: 'Address', w: 0.9, color: P.brandInk }],
+      Z.map((z) => [z.name, `${TYPE_NAME[z.type]}${z.count > 1 ? ` × ${z.count}` : ''}`, String(z.channels), { t: `${pad3(z.start)}–${pad3(z.end)}`, bold: true, color: P.brandInk }]), { size: 17, minRow: 48 });
+    txt(ctx, `Universe 1: ${used} of 512 channels used · start addresses set by channel count`, 60, 840, { size: 16, color: P.muted });
+  }
+  if (step >= 3) {
+    card(ctx, 790, 280, 750, 540);
+    txt(ctx, 'Universe 1 · first channels', 816, 318, { size: 18, weight: 700 });
+    const cols = 12, rows = Math.min(10, Math.ceil((used + 4) / cols)), cw = 56, chh = 42;
+    for (let c = 1; c <= rows * cols; c++) {
+      const i = c - 1, x = 816 + (i % cols) * cw, y = 340 + Math.floor(i / cols) * chh, z = Z.find((q) => c >= q.start && c <= q.end);
+      roundRect(ctx, x, y, cw - 6, chh - 6, 5); ctx.fillStyle = z ? TYPE_COLOR[z.type] : P.soft; ctx.fill();
+      txt(ctx, pad3(c), x + (cw - 6) / 2, y + (chh - 6) / 2 + 5, { size: 13, weight: 700, color: z ? '#fff' : P.faint, align: 'center' });
+    }
+    const bx = 816, by = 340 + rows * chh + 20, bw = 700;
+    roundRect(ctx, bx, by, bw, 18, 5); ctx.fillStyle = P.soft; ctx.fill();
+    Z.forEach((z) => { ctx.fillStyle = TYPE_COLOR[z.type]; ctx.fillRect(bx + (z.start - 1) / 512 * bw, by, Math.max(2, z.channels / 512 * bw), 18); });
+    txt(ctx, '1', bx, by + 38, { size: 12, color: P.muted }); txt(ctx, '512', bx + bw, by + 38, { size: 12, color: P.muted, align: 'right' });
+  }
+}
+function drawDmxChain(ctx, step) {
+  card(ctx, 60, 140, 1480, 330);
+  txt(ctx, 'Daisy-chain: controller → device → device … → terminator', 88, 182, { size: 22, weight: 700 });
+  const y = 250, xs = [100, 380, 620, 860, 1100];
+  fbox(ctx, xs[0], y, 200, 100, 'DMX controller', 'Universe 1', { size: 19, bar: BRAND.primary });
+  for (let i = 1; i < 5; i++) fbox(ctx, xs[i] + 20, y, 180, 100, `Decoder ${i}`, `DMX ${pad3(1 + (i - 1) * 3)}`, { size: 19 });
+  const segs = [[300, 398], [578, 638], [818, 878], [1058, 1118]];
+  segs.forEach(([a, b]) => { line(ctx, [[a, y + 50], [b, y + 50]], { color: P.brand, width: 5 }); });
+  if (lightLevel() > 0) { const t = (animT * 0.6) % 1; segs.forEach(([a, b]) => { const x = a + (b - a) * t; ctx.beginPath(); ctx.arc(x, y + 50, 6, 0, Math.PI * 2); ctx.fillStyle = BRAND.accent; ctx.fill(); }); }
+  if (step >= 2) {
+    roundRect(ctx, 1318, y + 30, 120, 40, 8); ctx.fillStyle = BRAND.accent; ctx.fill();
+    line(ctx, [[1298, y + 50], [1318, y + 50]], { color: P.brand, width: 5 });
+    txt(ctx, `${DMX.terminatorOhms} Ω`, 1378, y + 56, { size: 18, weight: 800, color: '#1b222b', align: 'center' });
+    pill(ctx, 'Terminate the last device', 1378, y + 118, { bg: BRAND.accent, color: '#1b222b', size: 15, align: 'center' });
+    txt(ctx, 'Daisy-chain, never star.', 88, 440, { size: 18, weight: 700, color: P.brandInk });
+  }
+  if (step >= 3) {
+    card(ctx, 60, 500, 520, 340, { fill: hexA(P.bad, 0.06), stroke: hexA(P.bad, 0.5), shadow: false });
+    txt(ctx, 'Star wiring', 88, 540, { size: 20, weight: 700 }); drawCheck(ctx, 540, 532, 18, false);
+    [[110, 580], [400, 580], [110, 770], [400, 770]].forEach(([x, yy]) => { line(ctx, [[310, 675], [x + 50, yy + 22]], { color: P.bad, width: 3 }); fbox(ctx, x, yy, 100, 44, 'Device', null, { size: 15 }); });
+    fbox(ctx, 230, 640, 160, 70, 'Controller', null, { size: 17 });
+  }
+  if (step >= 4) {
+    card(ctx, 620, 500, 920, 340);
+    txt(ctx, `Bigger systems: split into segments (up to ${DMX.unitLoadsPerSegment} unit loads each)`, 648, 540, { size: 19, weight: 700, maxW: 860 });
+    fbox(ctx, 650, 640, 150, 70, 'Controller', null, { size: 16 });
+    fbox(ctx, 850, 630, 170, 90, 'Splitter / opto', 'isolated outputs', { size: 16, bar: BRAND.primary });
+    arrow(ctx, [[800, 675], [848, 675]], P.brand, { width: 4 });
+    [585, 675, 765].forEach((yy) => {
+      line(ctx, [[1020, 675], [1060, yy]], { color: P.brand, width: 3 });
+      [1070, 1200, 1330].forEach((x, k) => { fbox(ctx, x, yy - 18, 110, 36, `Device`, null, { size: 13 }); if (k < 2) line(ctx, [[x + 110, yy], [x + 130, yy]], { color: P.brand, width: 3 }); });
+      roundRect(ctx, 1450, yy - 12, 60, 24, 5); ctx.fillStyle = BRAND.accent; ctx.fill(); txt(ctx, '120 Ω', 1480, yy + 5, { size: 12, weight: 800, color: '#1b222b', align: 'center' });
+    });
+    txt(ctx, 'Wireless DMX helps where cable is impractical; plan the signal path.', 648, 822, { size: 15, color: P.muted });
+  }
+}
+
+/* ---------- Advanced 3.4 — power topology & commissioning ---------- */
+function drawPowerTopology(ctx, step) {
+  const runs = [
+    { z: 'Z1 Living cove (TW)', c: ZONE_COLORS[0], sup: '150 W', ckt: 'Ckt 12', dec: '2-ch decoder' },
+    { z: 'Z2 Kitchen under-cab', c: ZONE_COLORS[1], sup: '60 W', ckt: 'Ckt 12' },
+    { z: 'Z3 Hall toe-kick', c: ZONE_COLORS[2], sup: '36 W', ckt: 'Ckt 12' },
+    { z: 'Z4 Pool deck · run A', c: ZONE_COLORS[3], sup: '150 W', ckt: 'Ckt 14', dec: 'RGBW decoder' },
+    { z: 'Z4 Pool deck · run B', c: ZONE_COLORS[3], sup: '150 W', ckt: 'Ckt 14', dec: 'RGBW decoder' },
+  ];
+  card(ctx, 60, 140, 190, 690); txt(ctx, 'Breaker panel', 155, 180, { size: 18, weight: 700, align: 'center' });
+  [['Ckt 12', 300], ['Ckt 14', 610]].forEach(([t, y]) => { roundRect(ctx, 100, y - 22, 110, 44, 6); ctx.fillStyle = '#3a4049'; ctx.fill(); txt(ctx, t, 155, y + 6, { size: 15, weight: 700, color: '#fff', align: 'center' }); });
+  runs.forEach((r, i) => {
+    const y = 190 + i * 132, cy = y + 45, by = r.ckt === 'Ckt 12' ? 300 : 610;
+    arrow(ctx, [[210, by], [300, by], [300, cy], [338, cy]], P.wire, { width: 3.5 });
+    fbox(ctx, 340, y, 200, 90, `Supply · ${r.sup}`, step >= 3 ? `${r.z.split(' ')[0]} · ${r.ckt}` : null, { size: 17, bar: r.c });
+    let x = 540;
+    if (r.dec) { arrow(ctx, [[x, cy], [598, cy]], r.c, { width: 3.5 }); fbox(ctx, 600, y + 10, 160, 70, r.dec, null, { size: 15 }); x = 760; }
+    arrow(ctx, [[x, cy], [818, cy]], r.c, { width: 3.5 });
+    drawStrip(ctx, 820, cy - 8, 300, 16, () => 1);
+    txt(ctx, r.z, 820, y + 18, { size: 16, weight: 700, color: r.c });
+    if (step >= 3) pill(ctx, `Label: ${r.z.split(' ')[0]} · ${r.ckt}`, 1120, cy + 30, { bg: P.soft, size: 12, align: 'right', color: P.muted });
+  });
+  txt(ctx, 'Each run is fed from one supply', 820, 836, { size: 16, weight: 700, color: P.good });
+  if (step >= 2) {
+    card(ctx, 1160, 140, 380, 330, { fill: hexA(P.bad, 0.06), stroke: hexA(P.bad, 0.5), shadow: false });
+    txt(ctx, 'Never parallel outputs', 1186, 180, { size: 20, weight: 700 }); drawCheck(ctx, 1500, 172, 18, false);
+    fbox(ctx, 1190, 220, 130, 56, 'Supply 1', null, { size: 15 }); fbox(ctx, 1190, 310, 130, 56, 'Supply 2', null, { size: 15 });
+    line(ctx, [[1320, 248], [1370, 248], [1370, 338], [1320, 338]], { color: P.bad, width: 3.5 });
+    arrow(ctx, [[1370, 293], [1410, 293]], P.bad, { width: 3.5 });
+    drawStrip(ctx, 1414, 285, 100, 14, () => 1);
+    wrap(ctx, 'Two supplies tied into one run: never.', 1186, 410, 330, { size: 16, color: P.muted });
+  }
+  if (step >= 3) {
+    card(ctx, 1160, 490, 380, 340);
+    txt(ctx, 'Also', 1186, 528, { size: 18, weight: 700 });
+    let y = 566;
+    ['Same phase / leg where the dimmer maker requires it', 'Supplies close to the load; remote needs heavier gauge', 'Shared commons on multi-supply RGBW: follow the decoder maker’s wiring', 'Label supply, zone, circuit, and breaker'].forEach((t) => { y += bullet(ctx, 1186, y, t, 330, { size: 15 }) + 6; });
+  }
+}
+function drawCommission(ctx) {
+  pill(ctx, 'Handout', 1540, 72, { bg: P.soft, size: 15, align: 'right', color: P.muted });
+  card(ctx, 60, 140, 1480, 70, { shadow: false });
+  [['Project', 90], ['Date', 700], ['Technician', 1060]].forEach(([t, x]) => { txt(ctx, `${t}:`, x, 182, { size: 17, weight: 700, color: P.muted }); line(ctx, [[x + (t.length * 10 + 20), 186], [x + (t === 'Project' ? 560 : 330), 186]], { color: P.line, width: 1.5 }); });
+  const Z = dmxPlan();
+  const h = table(ctx, 60, 230, 1480, [{ h: 'Zone', w: 1.4, bold: true }, { h: 'Supply · circuit', w: 1 }, ...COMMISSION_CHECKS.map((c) => ({ h: c, w: 0.6 })), { h: 'Notes', w: 1.4 }],
+    Z.map((z, j) => [{ t: z.name, color: ZONE_COLORS[j % ZONE_COLORS.length], bold: true }, `${z.supply ? z.supply + ' W' : '—'} · [Ckt]`, ...COMMISSION_CHECKS.map(() => ({ check: null })), '']), { size: 17, minRow: 62 });
+  txt(ctx, 'Test each zone at full, at low, and at off before sign-off. Note dimmer / supply models verified.', 60, 230 + h + 40, { size: 17, color: P.muted });
+  [['Installer sign-off', 60], ['Client / GC sign-off', 820]].forEach(([t, x]) => { line(ctx, [[x, 230 + h + 110], [x + 620, 230 + h + 110]], { color: P.ink, width: 1.5 }); txt(ctx, t, x, 230 + h + 134, { size: 14, color: P.muted }); });
+}
+
+/* ---------- Advanced 4 — code & listing ---------- */
+function drawCodeChecklist(ctx, step) {
+  card(ctx, 60, 140, 1480, 64, { fill: hexA(P.warn, 0.1), stroke: hexA(P.warn, 0.5), shadow: false, r: 10 });
+  txt(ctx, '⚠  General guidance. The local authority having jurisdiction decides, so verify for your project.', 800, 180, { size: 19, weight: 700, align: 'center' });
+  CODE_CHECKLIST.forEach(([t, d], i) => {
+    const y = 226 + i * 104;
+    if (step < i + 1) { ghost(ctx, 60, y, 900, 92); return; }
+    card(ctx, 60, y, 900, 92, { stroke: step === i + 1 ? P.brand : P.cardLine, lw: step === i + 1 ? 2.5 : 1.5 });
+    roundRect(ctx, 84, y + 26, 30, 30, 6); ctx.lineWidth = 2.5; ctx.strokeStyle = P.brand; ctx.stroke();
+    txt(ctx, t, 134, y + 36, { size: 21, weight: 700 });
+    txt(ctx, d, 134, y + 66, { size: 15, color: P.muted, maxW: 800 });
+  });
+  if (step > CODE_CHECKLIST.length) {
+    card(ctx, 990, 226, 550, 612, { stroke: P.brand, lw: 2 });
+    txt(ctx, LISTING.title, 1016, 270, { size: 24, weight: 700, maxW: 500 });
+    let y = 320;
+    LISTING.lines.forEach((t) => { y += bullet(ctx, 1016, y, t, 500, { size: 19 }) + 14; });
+    pill(ctx, LISTING.link, 1016, 790, { bg: BRAND.primary, color: '#fff', size: 16 });
+  }
+}
+
+/* ---------- registry ---------- */
+TRAINING_VISUALS.push(
+  { id: 'i5-place', section: '5.1', group: 'Intermediate · 5 Scaling up', title: 'Power supply placement', subtitle: 'Local vs. remote, and the rules of placement', kind: '2d', steps: 4, stepLabels: ['Plan', 'Local option', 'Remote option', 'Rules of placement'], draw: drawPlacement },
+  { id: 'i5-dim', section: '5.2', group: 'Intermediate · 5 Scaling up', title: 'Dimming cheat sheet', subtitle: 'Know which one your supply expects, and match the control to it', kind: '2d', steps: CONTROL_TYPES.length + 1, stepLabels: [...CONTROL_TYPES.map((c) => c[0]), 'Callback warning'], draw: drawDimCheat },
+  { id: 'i5-recap', section: '5.3', group: 'Intermediate · 5 Scaling up', title: 'Recap in four lines', subtitle: 'From downlights to custom linear', kind: '2d', steps: 4, stepLabels: RECAP.map((r) => r[0]), draw: drawRecap },
+  { id: 'a11-wave', section: 'A1.1', group: 'Advanced · 1 Complex integrations', title: 'Phase-cut: leading vs. trailing edge', subtitle: 'Animated: the cut moves as the dimmer level changes', kind: '2d', steps: 3, stepLabels: ['Forward phase (TRIAC)', 'Reverse phase (ELV)', 'The rule'], draw: drawWaveforms, animated: true },
+  { id: 'a11-fail', section: 'A1.1', group: 'Advanced · 1 Complex integrations', title: 'Dimmer failure modes', subtitle: 'Symptom → likely cause → first check', kind: '2d', steps: FAILURE_MODES.length, stepLabels: FAILURE_MODES.map((f) => f[0]), draw: drawFailureTable },
+  { id: 'a11-load', section: 'A1.1', group: 'Advanced · 1 Complex integrations', title: 'Minimum load, LED rating, inrush, neutral', subtitle: 'Why short runs flicker and dimmers fail', kind: '2d', steps: 5, stepLabels: ['Load window', 'Short run below minimum', 'Run inside the window', 'Inrush: supplies per dimmer', 'Neutral & ghosting'], draw: drawDimmerLoad },
+  { id: 'a12-wave', section: 'A1.2', group: 'Advanced · 1 Complex integrations', title: 'CVR vs. PWM dimming', subtitle: 'Lower the voltage, or switch full voltage on and off', kind: '2d', steps: 3, stepLabels: ['CVR', 'PWM', 'PWM frequency vs. camera'], draw: drawCvrPwm, animated: true },
+  { id: 'a12-matrix', section: 'A1.2', group: 'Advanced · 1 Complex integrations', title: 'Tape type × dimming method', subtitle: 'And what goes wrong with the wrong pairing', kind: '2d', steps: TAPE_METHODS.length + 1, stepLabels: [...TAPE_METHODS.map((t) => t[0]), 'The check'], draw: drawTapeMethods },
+  { id: 'a13-paths', section: 'A1.3', group: 'Advanced · 1 Complex integrations', title: 'Controls integration paths', subtitle: 'Wall dimmer → control processor → gateway', kind: '2d', steps: 4, stepLabels: ['Wall dimmer / keypad', 'Control processor', 'Standalone DMX / DALI', 'Decision rule'], draw: drawIntegration },
+  { id: 'a13-dtw', section: 'A1.3', group: 'Advanced · 1 Complex integrations', title: 'Dim-to-warm vs. tunable white', subtitle: 'Single input vs. two-channel control', kind: '2d', steps: 3, stepLabels: ['Dim-to-warm curve', 'Tunable white range', 'Comparison'], draw: drawDimToWarm },
+  { id: 'a13-wiring', section: 'A1.3', group: 'Advanced · 1 Complex integrations', title: 'Sample integration wiring', subtitle: 'Template: swap in your project drawing', kind: '2d', steps: 3, stepLabels: ['Power path', 'Control path', 'Outputs & notes'], draw: drawSampleWiring },
+  { id: 'a21-mix', section: 'A2.1', group: 'Advanced · 2 Profile matching', title: 'Mixing distance and hotspotting', subtitle: 'LED pitch, depth, and diffuser: change one, compensate the others', kind: '2d', steps: 3, stepLabels: ['Section', 'Dimensions', 'The three variables'], draw: drawMixing,
+    options: [{ id: 'case', label: 'Optics case', choices: OPTICS_CASES.map((c, i) => [String(i), c.label]), def: '0' }] },
+  { id: 'a21-gallery', section: 'A2.1', group: 'Advanced · 2 Profile matching', title: 'Hotspot gallery', subtitle: 'Same idea, different pitch, depth and diffuser (simulated)', kind: '2d', steps: OPTICS_CASES.length, stepLabels: OPTICS_CASES.map((c) => c.label), draw: drawHotspots },
+  { id: 'a22-thermal', section: 'A2.2', group: 'Advanced · 2 Profile matching', title: 'Thermal management', subtitle: 'Heat shortens LED life and shifts color', kind: '2d', steps: 3, stepLabels: ['Temperatures', 'Tape limit', 'Max W/ft by profile'], draw: drawThermal },
+  { id: 'a23-sections', section: 'A2.3', group: 'Advanced · 2 Profile matching', title: 'Mud-in and knife-edge sections', subtitle: 'Construction-specific profiles', kind: '2d', steps: 3, stepLabels: ['Mud-in, 5/8″ drywall', 'Knife-edge cove', 'Coordination notes'], draw: drawSections },
+  { id: 'a23-matrix', section: 'A2.3', group: 'Advanced · 2 Profile matching', title: 'Profile selection matrix', subtitle: 'Application × surface × output × diffuser', kind: '2d', steps: PROFILE_MATRIX.length, stepLabels: PROFILE_MATRIX.map((r) => r[0]), draw: drawProfileMatrix },
+  { id: 'a23-seq', section: 'A2.3', group: 'Advanced · 2 Profile matching', title: 'Mud-in install sequence', subtitle: 'Framing → profile → finishing → final', kind: '2d', steps: 4, stepLabels: ['Framing', 'Profile', 'Finishing', 'Final'], draw: drawInstallSeq },
+  { id: 'a31-zones', section: 'A3.1', group: 'Advanced · 3 Control planning', title: 'Zoning: from scenes to a zone schedule', subtitle: 'Plan from the client’s scenes backward', kind: '2d', steps: 2, stepLabels: ['Scenes', 'Zone schedule'], draw: drawZoning },
+  { id: 'a32-table', section: 'A3.2', group: 'Advanced · 3 Control planning', title: 'Protocol selection', subtitle: 'Best for, and the watch-out', kind: '2d', steps: PROTOCOLS.length + 1, stepLabels: [...PROTOCOLS.map((p) => p[0]), 'Rule'], draw: drawProtocols },
+  { id: 'a32-tree', section: 'A3.2', group: 'Advanced · 3 Control planning', title: 'Protocol decision tree', subtitle: 'Choose by project, not by habit', kind: '2d', steps: 5, stepLabels: ['Existing dimmers?', 'Commercial single-channel?', 'Color or multi-zone?', 'Networked commercial?', 'Otherwise'], draw: drawDecisionTree },
+  { id: 'a33-map', section: 'A3.3', group: 'Advanced · 3 Control planning', title: 'DMX address map', subtitle: 'One universe = 512 channels', kind: '2d', steps: 3, stepLabels: ['Channels per fixture', 'Address table', 'Universe map'], draw: drawDmxMap },
+  { id: 'a33-chain', section: 'A3.3', group: 'Advanced · 3 Control planning', title: 'DMX cabling and termination', subtitle: 'Daisy-chain, terminate, split large systems', kind: '2d', steps: 4, stepLabels: ['Daisy chain', 'Terminator', 'Never star', 'Splitters'], draw: drawDmxChain, animated: true },
+  { id: 'a34-topo', section: 'A3.4', group: 'Advanced · 3 Control planning', title: 'Power topology across multiple supplies', subtitle: 'One supply per run, zones color-coded', kind: '2d', steps: 3, stepLabels: ['Layout', 'Never parallel', 'Labels & cautions'], draw: drawPowerTopology },
+  { id: 'a34-commission', section: 'A3.4', group: 'Advanced · 3 Control planning', title: 'Commissioning checklist', subtitle: 'Full, low, and off for every zone before sign-off', kind: '2d', steps: 1, draw: drawCommission },
+  { id: 'a4-code', section: 'A4', group: 'Advanced · 4 Code & listing', title: 'What to verify before you install', subtitle: 'Listing, Class 2, NEC 411, wire ratings, energy code, documentation', kind: '2d', steps: CODE_CHECKLIST.length + 1, stepLabels: [...CODE_CHECKLIST.map((c) => c[0]), 'Listing details'], draw: drawCodeChecklist },
+);
 
 /* =====================================================================
    INIT
