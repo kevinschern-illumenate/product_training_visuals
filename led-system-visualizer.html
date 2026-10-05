@@ -30,6 +30,7 @@
    16. UI (side panel)
    17. EXPORT
    18. LAYOUT, RESIZE & RENDER LOOP
+   19. TRAINING VISUALS (outline sections 3 & 4)  <- data in section 1b
 -->
 <style>
   :root {
@@ -165,6 +166,14 @@
   .note { font-size: 11px; color: var(--ui-muted); margin: 6px 0 0; line-height: 1.35; }
   .kbd { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10.5px; border: 1px solid var(--ui-border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fff; }
   #exportBtn { width: 100%; padding: 9px; font-size: 13px; margin-top: 8px; }
+  body:not(.mode-train) .only-train { display: none !important; }
+  body.mode-train .not-train, body.mode-train .only-3d, body.mode-schem .only-3d { display: none !important; }
+  .inp { display: grid; grid-template-columns: 1fr 86px 40px; gap: 6px; align-items: center; margin: 4px 0; font-size: 12px; }
+  .inp input, .inp select { font: inherit; font-size: 12px; padding: 4px 6px; border: 1px solid var(--ui-border); border-radius: 6px; background: #fff; color: var(--ui-text); min-width: 0; width: 100%; }
+  .inp .unit { color: var(--ui-muted); font-size: 11px; }
+  .inp.wide { grid-template-columns: 1fr 150px; }
+  #trainVisual { font-weight: 600; }
+  #stepLabel { font-weight: 600; color: var(--ui-text); }
 </style>
 </head>
 <body>
@@ -467,6 +476,77 @@ const CAMERA_PRESETS = [
 const SAVED_SLOTS = 6;
 
 /* =====================================================================
+   1b. TRAINING DATA — "From downlights to custom linear", sections 3 & 4
+   All figures are illustrative. Replace the values and [bracketed]
+   placeholders with ilLumenate specs and part numbers; every training
+   visual recalculates from these (also editable live in the panel).
+   ===================================================================== */
+const EXAMPLE = {
+  // the running example (section 3)
+  runFt: 20,              // cove run length
+  wPerFt: 4.5,            // tape power
+  volts: 24,              // tape / supply voltage
+  supplyDistFt: 15,       // supply distance from the start of the run
+  // 3.1 load & supply size
+  derate: 0.8,            // 80% rule
+  supplySizes: [36, 60, 96, 150, 200, 300],   // standard supply sizes (W)
+  // 3.2 / 3.3 max run & feed methods
+  maxRunFt: 16,           // [spec] max run, single-end feed
+  dropAtMaxPct: 10,       // tape voltage drop at the max run (model calibration)
+  brightnessPerDrop: 2.5, // brightness loss per unit of voltage drop (model)
+  injectEveryFt: 10,      // power-injection spacing
+  // 3.4 supply-to-tape wire
+  wireAwg: 16,
+  dropLimitPct: 5,        // [your recommended limit]
+  // 4.1 cut intervals
+  cutRunIn: 175,          // 14 ft 7 in
+  cutIntervalIn: 2,       // [your cut interval]
+  ledsPerSegment: 3,
+  // 4.3 takeoff
+  profileStickFt: 8,      // [profile stick length]
+  clipSpacingIn: 24,      // [clip spacing per instructions]
+  wastePct: 10,           // allowance for field adjustments
+};
+
+/* Part-number placeholders shown in the takeoff tables */
+const PARTS = {
+  tape: '[Tape SKU]', tapeLow: '[Tape SKU 2]', coveProfile: '[Cove profile]', coveLens: '[Lens]', toeProfile: '[Toe-kick profile]', toeLens: '[Lens]',
+  dimmer: '[Dimmer]', endCap: '[End cap]', clip: '[Clip]', stick: '[Profile]', joiner: '[Joiner]', corner: '[Corner]',
+  connector: '[Connector]', jumper: '[Jumper]', wire: '[LV wire]',
+};
+
+/* Copper resistance, ohms per 1,000 ft (one conductor) */
+const AWG_OHMS_PER_1000FT = { 10: 0.999, 12: 1.588, 14: 2.525, 16: 4.016, 18: 6.385, 20: 10.15 };
+
+/* 4.3 takeoff zones. The first zone uses the running example (EXAMPLE) for length, W/ft and distances. */
+const TAKEOFF_ZONES = [
+  { name: 'Living cove', fromExample: true, corners: 1, tape: () => PARTS.tape, profile: () => PARTS.coveProfile, lens: () => PARTS.coveLens, control: () => PARTS.dimmer, color: ZONE_COLORS[0] },
+  { name: 'Hall toe-kick', legsFt: [12], corners: 0, wPerFt: 3.0, maxRunFt: 16, supplyDistFt: 8, tape: () => PARTS.tapeLow, profile: () => PARTS.toeProfile, lens: () => PARTS.toeLens, control: () => PARTS.dimmer, color: ZONE_COLORS[2] },
+];
+
+/* 4.3 the nine-step takeoff checklist */
+const CHECKLIST = [
+  ['Mark zones', 'Name each zone on the plan, e.g. “Living Cove,” “Hall Toe-Kick.”'],
+  ['Measure each run', 'Per zone. Note corners, joins, and ends.'],
+  ['Pick tape + profile', 'Per zone, from the profile selection matrix.'],
+  ['Calculate the load', 'Length × W/ft for each zone.'],
+  ['Choose the feed method', 'Compare each run to the max run length.'],
+  ['Size the supplies', '80% rule. Own supply per zone, or shared?'],
+  ['Pick controls', 'A dimmer or controller per zone.'],
+  ['List accessories', 'End caps, clips, joiners, corners, connectors, jumpers, supply-to-tape wire.'],
+  ['Review', 'Do totals match the plan? Room for waste or an extra piece?'],
+];
+
+/* 4.4 common quoting mistakes */
+const MISTAKES = [
+  ['Forgetting the supply-to-tape wire', 'Add wire for every feed point, including the run to the far end.', '3.4 · 4.3'],
+  ['Sizing the supply without the 80% rule', 'Load ÷ 0.8, then round up to the next standard size.', '3.1'],
+  ['Ignoring the max run length', 'Check the spec sheet, then pick a feed method that fits.', '3.2 · 3.3'],
+  ['Forgetting end caps, clips, or joiners', 'Run the accessory list on every takeoff.', '4.3'],
+  ['Ordering exact length, no allowance', 'Add waste for field adjustments and an extra piece.', '4.1 · 4.3'],
+];
+
+/* =====================================================================
    2. UTILITIES
    ===================================================================== */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -651,7 +731,7 @@ class OrbitRig {
   constructor(dom) {
     this.dom = dom; this.camera = null;
     this.target = new THREE.Vector3(); this.theta = 0; this.phi = 1.2; this.radius = 8;
-    this.enableRotate = true; this.minRadius = 0.03; this.maxRadius = 80;
+    this.enabled = true; this.enableRotate = true; this.minRadius = 0.03; this.maxRadius = 80;
     this.onChange = null; this.onUser = null;
     this._drag = null;
     dom.addEventListener('pointerdown', (e) => this._down(e));
@@ -662,7 +742,7 @@ class OrbitRig {
     dom.addEventListener('contextmenu', (e) => e.preventDefault());
   }
   _down(e) {
-    if (!this.camera) return;
+    if (!this.camera || !this.enabled) return;
     this.dom.setPointerCapture(e.pointerId);
     const pan = e.button === 1 || e.button === 2 || e.shiftKey || e.ctrlKey || e.metaKey || !this.enableRotate;
     this._drag = { mode: pan ? 'pan' : 'rotate', x: e.clientX, y: e.clientY, id: e.pointerId };
@@ -692,7 +772,7 @@ class OrbitRig {
     this.target.addScaledVector(right, -dx * k).addScaledVector(up, dy * k);
   }
   _wheel(e) {
-    if (!this.camera) return;
+    if (!this.camera || !this.enabled) return;
     e.preventDefault();
     const f = Math.exp(clamp(e.deltaY, -120, 120) * 0.0016);
     // zoom toward the point under the cursor
@@ -827,6 +907,7 @@ const state = {
   exportScale: DEFAULT_EXPORT_SCALE, exportTransparent: false, hideUI: false,
   aspect: 'fill', fov: 38,
   viewName: 'Perspective',
+  trainVisual: 'ex', trainStep: 3, trainHeading: true, trainFootnote: true, animPlay: true, trainOpts: {},
   slots: new Array(SAVED_SLOTS).fill(null),
 };
 const glowActive = () => state.glow && state.dim > 0.001 && state.brightness > 0.001;
@@ -1297,7 +1378,7 @@ function detailFocus() {
     rig.target.distanceTo(cutPoint(selectedAssembly())) < 0.6 && rig.radius < 1.2;
 }
 function labelVisible(l) {
-  if (l.space !== (state.mode === 'schem' ? 'schem' : '3d')) return false;
+  if (l.space !== state.mode) return false;
   if (l.space === '3d' && l.kind !== 'detail' && !l.detailDim && detailFocus()) return false;
   if (l.layer && !layerOn[l.layer]) return false;
   if (l.zone && !zoneOn[resolve(l.zone)]) return false;
@@ -1423,6 +1504,7 @@ function drawDiagramText(ctx, l, proj, th, h, cam) {
 
 /** Draw every visible label for the given camera. Units: CSS pixels (ctx is pre-scaled). */
 function drawOverlay(ctx, w, h, cam) {
+  if (state.mode === 'train') { drawTraining(ctx, w, h, cam); return; }
   const th = LABEL_THEMES[currentTheme()], S = state.labelScale;
   cam.updateMatrixWorld();
   const proj = (p) => {
@@ -1810,6 +1892,7 @@ function getView() {
     mode: state.mode, type: cam.isPerspectiveCamera ? 'persp' : 'ortho',
     target: rig.target.toArray(), theta: rig.theta, phi: rig.phi, radius: rig.radius,
     zoom: cam.zoom, fov: perspCam.fov,
+    ...(state.mode === 'train' ? { visual: state.trainVisual, step: state.trainStep } : {}),
   };
 }
 function setFov(fov) { state.fov = fov; perspCam.fov = fov; perspCam.updateProjectionMatrix(); }
@@ -1817,7 +1900,10 @@ function setView(v) {
   tween = null;
   const mode = v.mode || '3d';
   if (mode !== state.mode) setMode(mode, { keepView: true });
-  if (mode === 'schem') {
+  if (mode === 'train') {
+    showVisual(v.visual || state.trainVisual, { keepView: true, step: v.step });
+    if (currentVisual().kind === '3d') { rig.camera = perspCam; rig.target.fromArray(v.target); rig.theta = v.theta; rig.phi = v.phi; rig.radius = v.radius || 8; if (v.fov) setFov(v.fov); }
+  } else if (mode === 'schem') {
     rig.camera = schemCam; rig.target.fromArray(v.target); rig.theta = 0; rig.phi = Math.PI / 2; rig.radius = 10;
     schemCam.zoom = v.zoom || 1; schemCam.updateProjectionMatrix();
   } else {
@@ -1833,7 +1919,8 @@ function setView(v) {
 }
 function animateTo(v, ms = 650) {
   const cam = (v.mode || '3d') === 'schem' ? schemCam : (v.type === 'ortho' ? orthoCam : perspCam);
-  if ((v.mode || '3d') !== state.mode || cam !== rig.camera || ms <= 0) { setView(v); return; }
+  const otherVisual = v.mode === 'train' && (v.visual !== state.trainVisual || v.step !== state.trainStep || currentVisual().kind !== '3d');
+  if ((v.mode || '3d') !== state.mode || cam !== rig.camera || ms <= 0 || otherVisual) { setView(v); return; }
   const from = getView();
   let dT = v.theta - from.theta;
   dT = (((dT + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
@@ -1872,19 +1959,19 @@ function applyPreset(id) {
   state.viewName = p.label;
   updateBadge(); syncUI();
 }
+let stashed3DName = 'Perspective';
 function setMode(mode, { keepView = false } = {}) {
   if (mode === state.mode) return;
   tween = null;
-  if (mode === 'schem') {
-    stashed3DView = getView();
-    state.mode = 'schem';
-    rig.enableRotate = false;
-    if (!keepView) { fitSchematic(); state.viewName = 'System diagram'; }
-  } else {
-    state.mode = '3d';
-    rig.enableRotate = true;
-    if (!keepView) { setView(stashed3DView || Object.assign({ mode: '3d' }, CAMERA_PRESETS[0].view)); state.viewName = stashed3DView ? state.viewName === 'System diagram' ? 'Custom' : state.viewName : 'Perspective'; }
-  }
+  if (state.mode === '3d') { stashed3DView = getView(); stashed3DName = state.viewName; }
+  state.mode = mode;
+  document.body.classList.toggle('mode-train', mode === 'train');
+  document.body.classList.toggle('mode-schem', mode === 'schem');
+  rig.enabled = true;
+  rig.enableRotate = mode !== 'schem';
+  if (mode === 'schem') { if (!keepView) { fitSchematic(); state.viewName = 'System diagram'; } }
+  else if (mode === 'train') { if (!keepView) showVisual(state.trainVisual); }
+  else if (!keepView) { setView(stashed3DView || Object.assign({ mode: '3d' }, CAMERA_PRESETS[0].view)); state.viewName = stashed3DView ? stashed3DName : 'Perspective'; }
   applyVisibility(); updateBadge(); syncUI(); requestRender();
 }
 function fitSchematic() {
@@ -1908,7 +1995,7 @@ function gotoSlot(i) {
   state.viewName = s.name; updateBadge();
 }
 function updateBadge() {
-  const mode = state.mode === 'schem' ? 'Diagram' : (rig.camera === orthoCam ? 'Orthographic' : 'Perspective');
+  const mode = state.mode === 'schem' ? 'Diagram' : state.mode === 'train' ? `Training · step ${trainStep()} of ${currentVisual().steps}` : (rig.camera === orthoCam ? 'Orthographic' : 'Perspective');
   $('#viewBadge').innerHTML = `${escapeHtml(state.viewName)}<small>${mode}</small>`;
 }
 const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -1924,7 +2011,7 @@ function buildUI() {
   root.setProperty('--accent', BRAND.accent); root.setProperty('--ui-font', BRAND.font);
   $('#appSub').textContent = `${BRAND.name} · ${BRAND.product}`;
 
-  const sec = (title, html, open = true) => `<details class="sec"${open ? ' open' : ''}><summary>${title}</summary><div class="sec-body">${html}</div></details>`;
+  const sec = (title, html, open = true, cls = '') => `<details class="sec ${cls}"${open ? ' open' : ''}><summary>${title}</summary><div class="sec-body">${html}</div></details>`;
   const slider = (id, label, min, max, step = 1) => `<div class="row"><span style="width:78px">${label}</span><input type="range" id="${id}" min="${min}" max="${max}" step="${step}"><span class="val" id="${id}Val"></span></div>`;
   const chk = (attrs, label) => `<label class="chk"><input type="checkbox" ${attrs}><span>${label}</span></label>`;
 
@@ -1946,18 +2033,45 @@ function buildUI() {
     <div class="slot" data-slot="${i}"><span class="num">${i + 1}</span><input type="text" placeholder="Empty — name, then Save">
       <button class="btn mini" data-act="save">Save</button><button class="btn mini" data-act="go">Go</button><button class="btn mini" data-act="clear" title="Clear slot">×</button></div>`).join('');
 
+
+  const inp = (attrs, label, unit) => `<label class="inp"><span>${label}</span><input ${attrs}><span class="unit">${unit}</span></label>`;
+  const groups = [...new Set(TRAINING_VISUALS.map((v) => v.group))];
+  const exInputs = EXAMPLE_INPUTS.map(([k, l, u, kind]) => kind === 'awg'
+    ? `<label class="inp"><span>${l}</span><select data-ex="${k}">${Object.keys(AWG_OHMS_PER_1000FT).map((g) => `<option value="${g}">${g}</option>`).join('')}</select><span class="unit">${u}</span></label>`
+    : inp(kind === 'list' ? `type="text" data-ex="${k}" data-kind="list"` : `type="number" step="any" min="0" data-ex="${k}"`, l, u)).join('');
+  const z2Inputs = ZONE2_INPUTS.map(([k, l, u, kind]) => inp(kind === 'text' ? `type="text" data-z2="${k}"` : `type="number" step="any" min="0" data-z2="${k}"`, l, u)).join('');
+  const partInputs = Object.keys(PARTS).map((k) => `<label class="inp wide"><span>${k.replace(/([A-Z])/g, ' $1').toLowerCase()}</span><input type="text" data-part="${k}"></label>`).join('');
+  const trainHtml = sec('Training visual', `
+      <div class="row"><select id="trainVisual">${groups.map((g) => `<optgroup label="${g}">${TRAINING_VISUALS.filter((v) => v.group === g).map((v) => `<option value="${v.id}">${v.section} · ${escapeHtml(v.title)}</option>`).join('')}</optgroup>`).join('')}</select></div>
+      <p class="note" id="trainSub" style="margin-top:0"></p>
+      <div class="sub">Build step</div>
+      <div class="row"><button class="btn mini" id="stepPrev" title="Previous step (←)">◀</button><input type="range" id="trainStep" min="1" max="1" step="1"><button class="btn mini" id="stepNext" title="Next step (→)">▶</button></div>
+      <div class="note" id="stepLabel" style="margin:0 0 6px"></div>
+      <div id="trainOptions"></div>
+      ${slider('labelScale2', 'Label size', 60, 180)}
+      ${chk('id="trainHeading"', 'Show heading (section + title)')}
+      ${chk('id="trainFootnote"', 'Show “illustrative figures” footnote')}
+      <div id="animRow">${chk('id="animPlay"', 'Animate current flow')}</div>
+      <button class="btn" id="trainResetView" style="width:100%;margin-top:6px">Reset camera</button>
+      <p class="note">← / → step through a build. “Export all build steps” saves one PNG per step for a PowerPoint build. CCT, glow and dim (Lighting) apply here too.</p>`, true, 'only-train') +
+    sec('Running example & placeholders', `
+      <p class="note" style="margin-top:0">Every training visual recalculates from these. Defaults follow the outline; values are illustrative.</p>
+      ${exInputs}
+      <div class="sub">Second takeoff zone (4.3)</div>${z2Inputs}
+      <div class="sub">Part-number placeholders</div>${partInputs}`, false, 'only-train');
   $('#panelBody').innerHTML =
     sec('View', `
-      <div class="seg" id="modeSeg"><button data-mode="3d">3D model</button><button data-mode="schem">Flat system diagram</button></div>
-      <div class="sub">Camera presets</div>
-      <div class="grid2" id="presets">${CAMERA_PRESETS.map((p) => `<button class="btn" data-preset="${p.id}">${p.label}</button>`).join('')}</div>
-      ${slider('fov', 'Lens (FOV)', 15, 75)}
+      <div class="seg" id="modeSeg"><button data-mode="3d">3D model</button><button data-mode="schem">System diagram</button><button data-mode="train">Training visuals</button></div>
+      <div class="only-3d"><div class="sub">Camera presets</div>
+      <div class="grid2" id="presets">${CAMERA_PRESETS.map((p) => `<button class="btn" data-preset="${p.id}">${p.label}</button>`).join('')}</div></div>
+      <div class="not-train">${slider('fov', 'Lens (FOV)', 15, 75)}</div>
       <div class="row"><span style="width:78px">Frame</span><select id="aspect">
         <option value="fill">Fill window</option><option value="16:9">16:9 widescreen slide</option><option value="4:3">4:3 standard slide</option><option value="1:1">1:1 square</option></select></div>
       <div class="sub">Saved views <span style="font-weight:400;text-transform:none;letter-spacing:0">· in memory · keys 1–6, Shift+1–6 saves</span></div>
       <div id="slots">${slotsHtml}</div>`) +
-    sec('Layers', `<div class="row"><button class="btn mini" id="layersAll">Show everything</button><button class="btn mini" id="layersReset">Reset to defaults</button></div>${groupsHtml}`) +
-    sec('Zones', zonesHtml) +
+    trainHtml +
+    sec('Layers', `<div class="row"><button class="btn mini" id="layersAll">Show everything</button><button class="btn mini" id="layersReset">Reset to defaults</button></div>${groupsHtml}`, true, 'not-train') +
+    sec('Zones', zonesHtml, true, 'not-train') +
     sec('Lighting', `
       ${chk('id="glow"', 'Light glow (tape on)')}
       ${slider('brightness', 'Brightness', 0, 200)}
@@ -1970,13 +2084,13 @@ function buildUI() {
       ${chk('id="section"', 'Cross-section (clip through the channel)')}
       ${slider('cutPos', 'Cut position', 3, 97)}
       <div class="grid2"><button class="btn" id="closeupBtn">Close-up view</button><button class="btn" id="detailReset">Reset detail</button></div>
-      <p class="note">Exploded view separates clips, channel, tape and diffuser away from the mounting surface. The cut face is filled so the profile reads clearly.</p>`, false) +
+      <p class="note">Exploded view separates clips, channel, tape and diffuser away from the mounting surface. The cut face is filled so the profile reads clearly.</p>`, false, 'only-3d') +
     sec('Labels', `
       ${slider('labelScale', 'Label size', 60, 180)}
       ${chk('data-layer="labels-callouts"', 'Component callouts')}
       ${chk('data-layer="labels-dims"', 'Dimensions')}
       ${chk('data-layer="labels-wires"', 'Wire label mode (gauge & length)')}
-      <p class="note">Labels are drawn over the 3D view and included in PNG exports. Gauges and lengths are placeholders (edit <code>ZONES[].gauge</code>).</p>`, false) +
+      <p class="note">Labels are drawn over the 3D view and included in PNG exports. Gauges and lengths are placeholders (edit <code>ZONES[].gauge</code>).</p>`, false, 'not-train') +
     sec('Render', `
       <div class="sub" style="margin-top:0">Background</div>
       <div class="bgs" id="bgs">${Object.entries(BACKGROUNDS).map(([k, b]) => `<button data-bg="${k}" style="${b.color ? `background:${b.color};color:${b.theme === 'dark' ? '#fff' : '#333'}` : 'background:repeating-conic-gradient(#e2e5e9 0 25%,#fff 0 50%) 0 0/12px 12px'}">${b.label}</button>`).join('')}</div>
@@ -1989,6 +2103,7 @@ function buildUI() {
     ${chk('id="exportTransparent"', 'Transparent background')}
     ${chk('id="hideUI"', 'Hide UI for capture <span class="kbd">H</span>')}
     <button class="btn primary" id="exportBtn">Export PNG</button>
+    <div class="row only-train" style="margin-top:6px"><button class="btn grow" id="exportStepsBtn">Export all build steps</button><button class="btn" id="recordBtn" title="Record 6 s of the animation">Record video</button></div>
     <div class="row" style="margin-top:6px"><button class="btn grow" id="exportAllBtn">Export all saved views</button></div>
     <p class="note" id="exportInfo"></p>`;
 
@@ -1999,6 +2114,21 @@ function wireUI() {
   const panel = $('#panel');
   panel.addEventListener('input', (e) => {
     const t = e.target, v = Number(t.value);
+    if (t.dataset.ex) {
+      const k = t.dataset.ex;
+      if (t.dataset.kind === 'list') { const arr = t.value.split(/[,\s]+/).map(Number).filter((n) => Number.isFinite(n) && n > 0); if (arr.length) EXAMPLE[k] = arr; }
+      else if (Number.isFinite(v) && v > 0) EXAMPLE[k] = v;
+      syncValues(); requestRender(); return;
+    }
+    if (t.dataset.z2) {
+      const z = TAKEOFF_ZONES[1], k = t.dataset.z2; if (!z) return;
+      if (k === 'name') z.name = t.value || 'Zone 2';
+      else if (Number.isFinite(v) && v > 0) { if (k === 'legsFt') z.legsFt = [v]; else z[k] = v; }
+      requestRender(); return;
+    }
+    if (t.dataset.part) { PARTS[t.dataset.part] = t.value; requestRender(); return; }
+    if (t.id === 'trainStep') { state.trainStep = v; updateBadge(); syncUI(); requestRender(); return; }
+    if (t.id === 'labelScale2') { state.labelScale = v / 100; syncUI(); requestRender(); return; }
     switch (t.id) {
       case 'fov': setFov(v); rig.update(); break;
       case 'xray': state.xray = v / 100; applyXray(); break;
@@ -2015,7 +2145,13 @@ function wireUI() {
     const t = e.target;
     if (t.dataset.layer) { layerOn[t.dataset.layer] = t.checked; soloState = null; onLayersChanged(); return; }
     if (t.dataset.zone) { zoneOn[t.dataset.zone] = t.checked; onLayersChanged(); return; }
+    if (t.dataset.opt) { const id = state.trainVisual; state.trainOpts[id] = Object.assign({}, state.trainOpts[id], { [t.dataset.opt]: t.value }); requestRender(); return; }
+    if (t.dataset.ex && t.tagName === 'SELECT') { EXAMPLE[t.dataset.ex] = Number(t.value); requestRender(); return; }
     switch (t.id) {
+      case 'trainVisual': showVisual(t.value); break;
+      case 'trainHeading': state.trainHeading = t.checked; break;
+      case 'trainFootnote': state.trainFootnote = t.checked; break;
+      case 'animPlay': state.animPlay = t.checked; if (!t.checked) animT = 0; break;
       case 'edges': state.edges = t.checked; applyXray(); break;
       case 'glow': state.glow = t.checked; updateLighting(); break;
       case 'section': state.section = t.checked; applySection(); break;
@@ -2050,7 +2186,11 @@ function wireUI() {
       case 'layersReset': LAYERS.forEach((l) => (layerOn[l.id] = l.on)); soloState = null; onLayersChanged(); break;
       case 'closeupBtn': applyPreset('section'); break;
       case 'detailReset': state.explode = 0; state.section = false; applyExplode(); applySection(); syncUI(); break;
-      case 'exportBtn': exportPNG(state.viewName); break;
+      case 'exportBtn': exportPNG(exportBaseName()); break;
+      case 'exportStepsBtn': exportAllSteps(); break;
+      case 'recordBtn': recordAnimation(6); break;
+      case 'stepPrev': case 'stepNext': state.trainStep = clamp(trainStep() + (b.id === 'stepNext' ? 1 : -1), 1, currentVisual().steps); updateBadge(); syncUI(); requestRender(); break;
+      case 'trainResetView': showVisual(state.trainVisual, { step: state.trainStep }); break;
       case 'exportAllBtn': exportAllSaved(); break;
     }
   });
@@ -2093,7 +2233,7 @@ function syncValues() {
   setVal('cutPos', `${Math.round(state.cutPos * 100)}%`);
   setVal('labelScale', `${Math.round(state.labelScale * 100)}%`);
   const s = effectiveExportScale();
-  $('#exportInfo').textContent = `Output: ${Math.round(viewW * s)} × ${Math.round(viewH * s)} px · ${state.mode === 'schem' ? 'diagram' : 'current 3D view'}${s < state.exportScale ? ' (capped by GPU limit)' : ''}`;
+  $('#exportInfo').textContent = `Output: ${Math.round(viewW * s)} × ${Math.round(viewH * s)} px · ${state.mode === 'schem' ? 'diagram' : state.mode === 'train' ? 'training visual' : 'current 3D view'}${s < state.exportScale ? ' (capped by GPU limit)' : ''}`;
 }
 function syncUI() {
   if (!$('#modeSeg')) return;
@@ -2131,7 +2271,34 @@ function syncUI() {
     if (s && document.activeElement !== input && !input.value) input.value = s.name;
   });
   $('#exportAllBtn').disabled = !state.slots.some(Boolean);
+  syncTrainingUI();
   syncValues();
+}
+function syncTrainingUI() {
+  const v = currentVisual(), st = trainStep(), set = (id, prop, val) => { const el = $('#' + id); if (el && el[prop] !== val) el[prop] = val; };
+  set('trainVisual', 'value', v.id);
+  $('#trainSub').textContent = resolve(v.subtitle) || '';
+  const r = $('#trainStep'); r.max = String(v.steps); r.value = String(st); r.disabled = v.steps < 2;
+  $('#stepLabel').textContent = `Step ${st} of ${v.steps}${v.stepLabels ? ' · ' + v.stepLabels[st - 1] : ''}`;
+  $('#stepPrev').disabled = st <= 1; $('#stepNext').disabled = st >= v.steps;
+  $('#animRow').style.display = v.animated ? '' : 'none';
+  $('#trainResetView').style.display = v.kind === '3d' ? '' : 'none';
+  $('#recordBtn').style.display = v.animated ? '' : 'none';
+  $('#exportStepsBtn').disabled = v.steps < 2;
+  set('trainHeading', 'checked', state.trainHeading); set('trainFootnote', 'checked', state.trainFootnote); set('animPlay', 'checked', state.animPlay);
+  set('labelScale2', 'value', String(Math.round(state.labelScale * 100)));
+  const lv = $('#labelScale2Val'); if (lv) lv.textContent = `${Math.round(state.labelScale * 100)}%`;
+  const box = $('#trainOptions');
+  if (box.dataset.for !== v.id) {
+    const o = visualOpts(v);
+    box.innerHTML = (v.options || []).map((op) => `<div class="row"><span style="width:78px">${op.label}</span><select data-opt="${op.id}">${op.choices.map(([val, lab]) => `<option value="${val}"${o[op.id] === val ? ' selected' : ''}>${lab}</option>`).join('')}</select></div>`).join('');
+    box.dataset.for = v.id;
+  }
+  const active = document.activeElement;
+  document.querySelectorAll('[data-ex]').forEach((el) => { if (el === active) return; const val = EXAMPLE[el.dataset.ex]; const str = Array.isArray(val) ? val.join(', ') : String(val); if (el.value !== str) el.value = str; });
+  const z2 = TAKEOFF_ZONES[1];
+  document.querySelectorAll('[data-z2]').forEach((el) => { if (el === active || !z2) return; const k = el.dataset.z2, val = k === 'legsFt' ? z2.legsFt.reduce((a, b) => a + b, 0) : z2[k]; if (el.value !== String(val)) el.value = String(val); });
+  document.querySelectorAll('[data-part]').forEach((el) => { if (el !== active && el.value !== PARTS[el.dataset.part]) el.value = PARTS[el.dataset.part]; });
 }
 
 function applyXray() {
@@ -2188,7 +2355,13 @@ function effectiveExportScale() {
   const lim = maxCanvasDim();
   return Math.min(state.exportScale, lim / Math.max(viewW, viewH, 1));
 }
-function renderTo(cam) { if (state.mode === 'schem') renderer.render(schemScene, schemCam); else renderer.render(scene, cam); }
+function renderTo(cam) {
+  if (state.mode === 'schem') renderer.render(schemScene, schemCam);
+  else if (state.mode === 'train') {
+    const v = currentVisual();
+    if (v.kind === '3d') { ensureTrain3D(v); renderer.render(trainScene, perspCam); } else renderer.render(emptyScene, perspCam);
+  } else renderer.render(scene, cam);
+}
 
 async function renderPNGBlob() {
   const s = effectiveExportScale(), prevPR = renderer.getPixelRatio();
@@ -2267,10 +2440,20 @@ function renderFrame() {
   octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
   octx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawOverlay(octx, viewW, viewH, rig.camera);
+  if (recording) {
+    const r = recording, bg = BACKGROUNDS[state.bg].color || '#ffffff';
+    r.ctx.fillStyle = bg; r.ctx.fillRect(0, 0, r.rc.width, r.rc.height);
+    r.ctx.drawImage(glCanvas, 0, 0, r.rc.width, r.rc.height);
+    r.ctx.drawImage(overlayCanvas, 0, 0, r.rc.width, r.rc.height);
+  }
 }
 function loop(now) {
   requestAnimationFrame(loop);
   if (tween) { stepTween(now); needsRender = true; }
+  if (state.mode === 'train' && currentVisual().animated && state.animPlay) {
+    animT = now / 1000; needsRender = true;
+    if (trainMeta && trainMeta.anim) trainMeta.anim.forEach((m) => { m.map.offset.x = -animT * 3; });
+  }
   if (needsRender) { needsRender = false; renderFrame(); }
 }
 
@@ -2294,13 +2477,1165 @@ glCanvas.addEventListener('dblclick', (e) => {
 
 /* Keyboard shortcuts: H hide UI · Esc exit capture · P panel · E export · 1–6 recall · Shift+1–6 save */
 window.addEventListener('keydown', (e) => {
-  if (e.target.matches && e.target.matches('input[type=text], select, textarea')) return;
+  if (e.target.matches && e.target.matches('input:not([type=checkbox]):not([type=range]), select, textarea')) return;
   const k = e.key.toLowerCase();
   if (k === 'h' || (k === 'escape' && state.hideUI)) { setHideUI(!state.hideUI); e.preventDefault(); }
   else if (k === 'p') togglePanel();
-  else if (k === 'e' && !e.ctrlKey && !e.metaKey) exportPNG(state.viewName);
+  else if (k === 'e' && !e.ctrlKey && !e.metaKey) exportPNG(exportBaseName());
+  else if (state.mode === 'train' && (k === 'arrowright' || k === 'arrowleft')) { state.trainStep = clamp(trainStep() + (k === 'arrowright' ? 1 : -1), 1, currentVisual().steps); syncUI(); updateBadge(); requestRender(); e.preventDefault(); }
   else if (/^Digit[1-6]$/.test(e.code)) { const i = Number(e.code.slice(5)) - 1; if (e.shiftKey) saveSlot(i); else gotoSlot(i); }
 });
+
+
+/* =====================================================================
+   19. TRAINING VISUALS — outline sections 3 (The math) & 4 (Building a run)
+   Each TRAINING_VISUALS entry is one slide-ready visual:
+     kind '2d' → vector drawing in a 1600×900 slide space (crisp at any export scale)
+     kind '3d' → its own 3D scene + annotation overlay
+   "steps" are build steps, so one slide can reveal a piece at a time
+   ("Export all build steps" saves a PNG per step for PowerPoint builds).
+   Everything recalculates from EXAMPLE / PARTS / TAKEOFF_ZONES.
+   ===================================================================== */
+const FT = 0.3048, IN = 0.0254, WHITE = new THREE.Color(1, 1, 1);
+let animT = 0, recording = null, P = null;
+
+const fmt = (n, d = 1) => (Math.round(n * 10 ** d) / 10 ** d).toLocaleString('en-US', { maximumFractionDigits: d });
+const hexA = (hex, a) => { const c = new THREE.Color(hex); return `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${a})`; };
+const cctColor = () => new THREE.Color(CCT_COLORS[state.cct]);
+const lightLevel = () => (glowActive() ? state.brightness * state.dim : 0);
+
+/* ---------- calculations (single source of truth for every visual) ---------- */
+const FEED_METHODS = [
+  { id: 'single', name: 'Single-end feed', how: 'Power at one end', when: 'Run is within the max length', note: 'Simplest, but only within the max run' },
+  { id: 'both',   name: 'Both-end feed',   how: 'Power at both ends of the same run', when: 'Run is up to roughly double the max', note: 'Same supply, so account for the extra wire to the far end' },
+  { id: 'center', name: 'Center feed',     how: 'Power in the middle; tape runs both ways', when: 'Like both-end, if the middle is reachable', note: 'One wire to the middle of the run' },
+  { id: 'inject', name: 'Power injection', how: 'Extra power wire tapped in at intervals', when: 'Very long runs or high-output tape', note: 'Extra feed wires at intervals' },
+];
+const methodById = (id) => FEED_METHODS.find((m) => m.id === id) || FEED_METHODS[0];
+const CALC = {
+  load: (ft, w) => ft * w,
+  minSupply: (load) => load / EXAMPLE.derate,
+  nextSupply: (min) => EXAMPLE.supplySizes.slice().sort((a, b) => a - b).find((s) => s >= min - 1e-9) || null,
+  feedPoints(method, L) {
+    if (method === 'both') return [0, L];
+    if (method === 'center') return [L / 2];
+    if (method === 'inject') { const s = Math.max(1, EXAMPLE.injectEveryFt), pts = []; for (let p = 0; p < L - 1e-6; p += s) pts.push(p); pts.push(L); return pts; }
+    return [0];
+  },
+  /* Relative voltage drop along a uniformly loaded run, calibrated so a single-end
+     feed at the max run length drops EXAMPLE.dropAtMaxPct at its far end. */
+  dropAt(x, feeds, L) {
+    const m = EXAMPLE.maxRunFt, c = (EXAMPLE.dropAtMaxPct / 100) / (m * m / 2), f = feeds.slice().sort((a, b) => a - b);
+    if (x <= f[0]) { const t = f[0], d = f[0] - x; return c * (t * d - d * d / 2); }
+    const last = f[f.length - 1];
+    if (x >= last) { const t = L - last, d = x - last; return c * (t * d - d * d / 2); }
+    for (let i = 0; i < f.length - 1; i++) if (x >= f[i] && x <= f[i + 1]) { const s = f[i + 1] - f[i], d = x - f[i]; return c * d * (s - d) / 2; }
+    return 0;
+  },
+  brightnessAt(x, feeds, L) { return clamp(1 - EXAMPLE.brightnessPerDrop * this.dropAt(x, feeds, L), 0, 1); },
+  minBrightness(feeds, L) { let b = 1, at = 0; for (let i = 0; i <= 240; i++) { const x = L * i / 240, v = this.brightnessAt(x, feeds, L); if (v < b - 1e-9) { b = v; at = x; } } return { b, at }; },
+  recommendFeed: (L, max) => (L <= max ? 'single' : L <= 2 * max ? 'both' : 'inject'),
+  wire(current, oneWayFt, awg) {
+    const ohms = (2 * oneWayFt / 1000) * AWG_OHMS_PER_1000FT[awg], v = current * ohms;
+    return { ohms, v, pct: v / EXAMPLE.volts * 100, roundTrip: 2 * oneWayFt };
+  },
+  gaugeFor(current, oneWayFt) { for (const g of [18, 16, 14, 12, 10]) if (this.wire(current, oneWayFt, g).pct <= EXAMPLE.dropLimitPct + 1e-9) return g; return null; },
+};
+function exampleSummary() {
+  const E = EXAMPLE, load = CALC.load(E.runFt, E.wPerFt), min = CALC.minSupply(load), sup = CALC.nextSupply(min);
+  const method = CALC.recommendFeed(E.runFt, E.maxRunFt), I = load / E.volts;
+  return { load, min, sup, method, I, wire: CALC.wire(I, E.supplyDistFt, E.wireAwg) };
+}
+function cutMath() {
+  const E = EXAMPLE, iv = Math.max(0.25, E.cutIntervalIn), seg = Math.floor(E.cutRunIn / iv + 1e-9), tapeIn = seg * iv;
+  return { runIn: E.cutRunIn, iv, seg, tapeIn, dark: Math.round((E.cutRunIn - tapeIn) * 100) / 100 };
+}
+function takeoff() {
+  const E = EXAMPLE, waste = 1 + E.wastePct / 100;
+  return TAKEOFF_ZONES.map((z, i) => {
+    const ex = !!z.fromExample;
+    const len = ex ? E.runFt : z.legsFt.reduce((s, l) => s + l, 0);
+    let legs = ex ? [len] : z.legsFt.slice();
+    if (ex && z.corners > 0) { const a = Math.round(len * 0.6); legs = [a, len - a]; }
+    const wPerFt = ex ? E.wPerFt : z.wPerFt, maxRun = ex ? E.maxRunFt : z.maxRunFt, dist = ex ? E.supplyDistFt : z.supplyDistFt;
+    const load = len * wPerFt, min = load / E.derate, supply = CALC.nextSupply(min);
+    const method = CALC.recommendFeed(len, maxRun), feeds = CALC.feedPoints(method, len);
+    const sticksPer = legs.map((l) => Math.ceil(l / E.profileStickFt - 1e-9));
+    const wireFt = feeds.reduce((s, p) => s + dist + p, 0);
+    return {
+      z, i, name: z.name, color: z.color, len, legs, wPerFt, maxRun, dist, load, min, supply, method, feeds,
+      sticks: sticksPer.reduce((s, n) => s + n, 0), joiners: sticksPer.reduce((s, n) => s + n - 1, 0), corners: z.corners,
+      clips: legs.reduce((s, l) => s + Math.ceil(l * 12 / E.clipSpacingIn) + 1, 0),
+      connectors: feeds.length + z.corners * 2, jumpers: z.corners, endCaps: 2,
+      wireFt, wireOrder: Math.ceil(wireFt * waste - 1e-6), tapeOrder: Math.ceil(len * waste - 1e-6),
+      tape: resolve(z.tape), profile: resolve(z.profile), lens: resolve(z.lens) || '', control: resolve(z.control),
+    };
+  });
+}
+
+/* ---------- 2D slide drawing kit (1600 × 900 slide units) ---------- */
+function slidePalette() {
+  const dark = currentTheme() === 'dark';
+  return dark
+    ? { ink: '#f2f4f7', muted: '#a9b3bf', faint: '#6f7a87', line: '#3a434f', card: '#232a33', cardLine: '#36404b', soft: '#2b333d', channel: '#5d6570', pcb: '#4a4639', good: '#3DBF7F', warn: '#F0943F', bad: '#EF6262', brand: BRAND.primary, brandInk: '#9cc3ea', accent: BRAND.accent, wire: '#c9d1da' }
+    : { ink: '#1b222b', muted: '#5b6572', faint: '#9aa3ad', line: '#d5dae0', card: '#ffffff', cardLine: '#e1e5ea', soft: '#f1f3f6', channel: '#a3abb5', pcb: '#f1ecdf', good: '#1A9A5A', warn: '#D9731F', bad: '#D64545', brand: BRAND.primary, brandInk: BRAND.primary, accent: BRAND.accent, wire: '#2a2e35' };
+}
+function withSlide(ctx, w, h, fn) {
+  const s = Math.min(w / 1600, h / 900);
+  ctx.save(); ctx.translate((w - 1600 * s) / 2, (h - 900 * s) / 2); ctx.scale(s, s);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  fn(); ctx.restore();
+}
+function ellipsize(ctx, s, maxW) { if (ctx.measureText(s).width <= maxW) return s; while (s.length > 1 && ctx.measureText(s + '…').width > maxW) s = s.slice(0, -1); return s + '…'; }
+function txt(ctx, s, x, y, o = {}) {
+  ctx.font = `${o.weight || 400} ${o.size || 18}px ${BRAND.font}`;
+  ctx.fillStyle = o.color || P.ink; ctx.textAlign = o.align || 'left'; ctx.textBaseline = o.baseline || 'alphabetic';
+  let str = String(s); if (o.maxW) str = ellipsize(ctx, str, o.maxW);
+  ctx.fillText(str, x, y);
+  const w = ctx.measureText(str).width; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  return w;
+}
+function wrap(ctx, s, x, y, maxW, o = {}) {
+  ctx.font = `${o.weight || 400} ${o.size || 18}px ${BRAND.font}`;
+  const lines = []; let line = '';
+  String(s).split(' ').forEach((wd) => { const t = line ? line + ' ' + wd : wd; if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = wd; } else line = t; });
+  if (line) lines.push(line);
+  const lh = o.lh || (o.size || 18) * 1.35;
+  lines.forEach((l, i) => txt(ctx, l, x, y + i * lh, o));
+  return lines.length * lh;
+}
+function card(ctx, x, y, w, h, o = {}) {
+  ctx.save();
+  if (o.shadow !== false) { ctx.shadowColor = 'rgba(20,30,40,0.10)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 4; }
+  roundRect(ctx, x, y, w, h, o.r ?? 14); ctx.fillStyle = o.fill || P.card; ctx.fill();
+  ctx.restore();
+  if (o.stroke !== false) {
+    roundRect(ctx, x, y, w, h, o.r ?? 14); ctx.lineWidth = o.lw || 1.5; ctx.strokeStyle = o.stroke || P.cardLine;
+    if (o.dash) ctx.setLineDash(o.dash); ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+function pill(ctx, s, x, y, o = {}) {
+  const size = o.size || 15; ctx.font = `${o.weight || 600} ${size}px ${BRAND.font}`;
+  const pw = ctx.measureText(s).width + size * 1.4, ph = size + 12;
+  const px = o.align === 'center' ? x - pw / 2 : o.align === 'right' ? x - pw : x;
+  roundRect(ctx, px, y - ph / 2, pw, ph, ph / 2); ctx.fillStyle = o.bg || P.soft; ctx.fill();
+  if (o.stroke) { ctx.lineWidth = o.lw || 1.5; ctx.strokeStyle = o.stroke; ctx.stroke(); }
+  txt(ctx, s, px + pw / 2, y + 0.5, { size, weight: o.weight || 600, color: o.color || P.ink, align: 'center', baseline: 'middle' });
+  return pw;
+}
+function badge(ctx, n, x, y, r = 18, color) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = color || P.brand; ctx.fill();
+  txt(ctx, n, x, y + 1, { size: r * 1.05, weight: 700, color: '#fff', align: 'center', baseline: 'middle' });
+}
+function line(ctx, pts, o = {}) {
+  ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.strokeStyle = o.color || P.ink; ctx.lineWidth = o.width || 2;
+  ctx.setLineDash(o.dash || []); ctx.stroke(); ctx.setLineDash([]);
+}
+function arrowHead(ctx, x, y, ang, size, color) {
+  ctx.beginPath(); ctx.moveTo(x, y);
+  ctx.lineTo(x - size * Math.cos(ang - 0.45), y - size * Math.sin(ang - 0.45));
+  ctx.lineTo(x - size * Math.cos(ang + 0.45), y - size * Math.sin(ang + 0.45));
+  ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+}
+function dimH(ctx, x0, x1, y, label, o = {}) {
+  const c = o.color || P.muted;
+  line(ctx, [[x0, y], [x1, y]], { color: c, width: 1.5 });
+  [x0, x1].forEach((x) => { line(ctx, [[x, y - 12], [x, y + 12]], { color: c, width: 1.2 }); line(ctx, [[x - 6, y + 6], [x + 6, y - 6]], { color: c, width: 2.2 }); });
+  if (label) pill(ctx, label, (x0 + x1) / 2, y, { bg: P.card, stroke: c, size: o.size || 16, align: 'center', color: o.textColor || P.ink });
+}
+function hatch(ctx, x, y, w, h, color) {
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  ctx.fillStyle = hexA(color, 0.12); ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = hexA(color, 0.65); ctx.lineWidth = 2;
+  for (let k = -h; k < w; k += 11) { ctx.beginPath(); ctx.moveTo(x + k, y + h); ctx.lineTo(x + k + h, y); ctx.stroke(); }
+  ctx.restore();
+}
+/** THREE.Color of a lit diffuser at relative brightness b (0..1), following glow / dim / CCT. */
+function litColor(b) {
+  const I = lightLevel();
+  if (I <= 0) return new THREE.Color('#d9d4c4');
+  const lit = cctColor().lerp(WHITE, 0.35), off = new THREE.Color('#3a3f47');
+  return off.lerp(lit, clamp(0.12 + 0.88 * b * b * Math.min(1.15, I), 0, 1));
+}
+const goodBad = (b) => (b >= 0.85 ? P.good : b >= 0.7 ? P.warn : P.bad);
+/** Lit tape/diffuser strip with a brightness profile bFn(u), u = 0..1 along the strip. */
+function drawStrip(ctx, x, y, w, h, bFn = () => 1) {
+  roundRect(ctx, x - 5, y - 5, w + 10, h + 10, 5); ctx.fillStyle = P.channel; ctx.fill();
+  const n = Math.max(8, Math.ceil(w / 3));
+  for (let i = 0; i < n; i++) { ctx.fillStyle = litColor(bFn((i + 0.5) / n)).getStyle(); ctx.fillRect(x + i * w / n, y, w / n + 0.7, h); }
+  if (lightLevel() > 0) {
+    ctx.save(); ctx.globalCompositeOperation = currentTheme() === 'dark' ? 'lighter' : 'source-over';
+    const g = ctx.createLinearGradient(0, y - h * 1.6, 0, y); g.addColorStop(0, hexA(CCT_COLORS[state.cct], 0)); g.addColorStop(1, hexA(CCT_COLORS[state.cct], 0.28 * Math.min(1, lightLevel())));
+    ctx.fillStyle = g; ctx.fillRect(x, y - h * 1.6, w, h * 1.6 - 5); ctx.restore();
+  }
+}
+/** Moving dots that show current flowing away from feed points along a strip. */
+function flowDots(ctx, x, y, w, feedsU) {
+  if (lightLevel() <= 0) return;
+  const f = feedsU.slice().sort((a, b) => a - b), regions = [];
+  if (f[0] > 0) regions.push([0, f[0], -1]);
+  for (let i = 0; i < f.length - 1; i++) { const m = (f[i] + f[i + 1]) / 2; regions.push([f[i], m, 1], [m, f[i + 1], -1]); }
+  if (f[f.length - 1] < 1) regions.push([f[f.length - 1], 1, 1]);
+  const sp = 26, ph = (animT * 45) % sp;
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  regions.forEach(([a, b, dir]) => {
+    const A = x + a * w, B = x + b * w;
+    for (let k = 0; ; k++) {
+      const p = dir > 0 ? A + ph + k * sp : B - ph - k * sp;
+      if (p < A - 0.5 || p > B + 0.5) break;
+      ctx.beginPath(); ctx.arc(p, y, 2.6, 0, Math.PI * 2); ctx.fill();
+    }
+  });
+}
+/** Wire with animated current-flow dashes. */
+function drawWire2D(ctx, pts, color, o = {}) {
+  line(ctx, pts, { color, width: o.width || 5 });
+  if (lightLevel() > 0 && o.flow !== false) {
+    ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = (o.width || 5) * 0.45;
+    ctx.setLineDash([6, 14]); ctx.lineDashOffset = -animT * 60 * (o.dir || 1); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineDashOffset = 0;
+  }
+}
+function drawPSU(ctx, x, y, w, h, title = 'Supply', sub) {
+  ctx.save(); ctx.shadowColor = 'rgba(20,30,40,0.18)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
+  roundRect(ctx, x, y, w, h, 8); ctx.fillStyle = '#4c535e'; ctx.fill(); ctx.restore();
+  ctx.save(); roundRect(ctx, x, y, w, h, 8); ctx.clip(); ctx.fillStyle = BRAND.primary; ctx.fillRect(x, y, 7, h); ctx.restore();
+  txt(ctx, title, x + w / 2 + 3, y + h / 2 + (sub ? -7 : 1), { size: Math.min(18, h * 0.32), weight: 700, color: '#fff', align: 'center', baseline: 'middle', maxW: w - 14 });
+  if (sub) txt(ctx, sub, x + w / 2 + 3, y + h / 2 + 13, { size: Math.min(14, h * 0.25), color: '#c9d0d8', align: 'center', baseline: 'middle', maxW: w - 14 });
+}
+function drawCheck(ctx, x, y, r, ok) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = ok ? P.good : P.bad; ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = r * 0.22;
+  if (ok) line(ctx, [[x - r * 0.45, y + r * 0.02], [x - r * 0.1, y + r * 0.38], [x + r * 0.48, y - r * 0.35]], { color: '#fff', width: r * 0.24 });
+  else { line(ctx, [[x - r * 0.38, y - r * 0.38], [x + r * 0.38, y + r * 0.38]], { color: '#fff', width: r * 0.24 }); line(ctx, [[x + r * 0.38, y - r * 0.38], [x - r * 0.38, y + r * 0.38]], { color: '#fff', width: r * 0.24 }); }
+}
+function drawHeading(ctx, v) {
+  if (!state.trainHeading) return;
+  const tw = pill(ctx, v.section, 60, 70, { bg: P.brand, color: '#fff', size: 18, weight: 700 });
+  txt(ctx, v.title, 60 + tw + 16, 81, { size: 32, weight: 700 });
+  if (v.subtitle) txt(ctx, resolve(v.subtitle), 60, 114, { size: 18, color: P.muted });
+}
+function drawFootnote(ctx) {
+  if (!state.trainFootnote) return;
+  txt(ctx, 'Illustrative figures. Replace bracketed values with ilLumenate specs and part numbers.', 60, 880, { size: 14, color: P.faint });
+  txt(ctx, BRAND.name, 1540, 880, { size: 14, color: P.faint, align: 'right', weight: 600 });
+}
+const ghost = (ctx, x, y, w, h) => card(ctx, x, y, w, h, { fill: 'rgba(0,0,0,0)', stroke: P.line, dash: [8, 8], shadow: false });
+
+/* ---------- 2D visuals ---------- */
+function drawExample(ctx, step) {
+  const E = EXAMPLE, S = exampleSummary();
+  card(ctx, 60, 140, 1000, 430);
+  const x0 = 300, x1 = 1000, yC = 200, yL = 300;
+  line(ctx, [[90, yC], [1030, yC]], { color: P.faint, width: 3 });
+  txt(ctx, 'Ceiling', 1030, yC - 10, { size: 14, color: P.muted, align: 'right' });
+  if (lightLevel() > 0) {
+    const g = ctx.createLinearGradient(0, yL, 0, yC); g.addColorStop(0, hexA(CCT_COLORS[state.cct], 0.5 * Math.min(1, lightLevel()))); g.addColorStop(1, hexA(CCT_COLORS[state.cct], 0.08));
+    ctx.fillStyle = g; ctx.fillRect(x0, yC + 2, x1 - x0, yL - yC - 8);
+  }
+  drawStrip(ctx, x0, yL - 10, x1 - x0, 8);
+  roundRect(ctx, x0 - 10, yL, x1 - x0 + 20, 16, 3); ctx.fillStyle = P.channel; ctx.fill();
+  txt(ctx, 'Cove ledge', x0 - 18, yL + 12, { size: 14, color: P.muted, align: 'right' });
+  dimH(ctx, x0, x1, yL + 60, `${fmt(E.runFt)} ft cove run`, { size: 17 });
+  drawPSU(ctx, 100, 440, 150, 76, `${E.volts}V supply`, 'in closet');
+  drawWire2D(ctx, [[175, 440], [175, yL - 6], [x0 - 2, yL - 6]], ZONE_COLORS[0], { width: 5 });
+  pill(ctx, `${fmt(E.supplyDistFt)} ft from run start`, 190, 380, { bg: P.card, stroke: ZONE_COLORS[0], size: 15 });
+  txt(ctx, 'Living room', 650, 520, { size: 20, color: P.faint, align: 'center', weight: 600 });
+  [['Run', `${fmt(E.runFt)} ft cove`], ['Tape', `${E.volts}V · ${fmt(E.wPerFt, 2)} W/ft`], ['Supply location', `${fmt(E.supplyDistFt)} ft from the start of the run`], ['Max run, single-end feed', `${fmt(E.maxRunFt)} ft [spec]`]].forEach(([k, v], i) => {
+    card(ctx, 1090, 140 + i * 110, 450, 96);
+    txt(ctx, k, 1114, 176 + i * 110, { size: 15, color: P.muted, weight: 600 });
+    txt(ctx, v, 1114, 212 + i * 110, { size: 25, weight: 700, maxW: 410 });
+  });
+  if (step < 2) return;
+  const steps = [
+    ['Load & supply size', `${fmt(S.load)} W load → ${S.sup ? S.sup + ' W supply' : 'over the largest size'}`, null],
+    ['Max run length', `${fmt(E.runFt)} ft vs ${fmt(E.maxRunFt)} ft max`, E.runFt <= E.maxRunFt],
+    ['Feed method', methodById(S.method).name, null],
+    ['Wire gauge', `${E.wireAwg} AWG · ${fmt(S.wire.pct)}% drop`, S.wire.pct <= E.dropLimitPct],
+  ];
+  steps.forEach(([title, result, ok], i) => {
+    const x = 60 + i * 375, y = 610;
+    card(ctx, x, y, 355, 200);
+    badge(ctx, i + 1, x + 40, y + 44, 20);
+    txt(ctx, `Calculation ${i + 1}`, x + 72, y + 38, { size: 14, color: P.muted, weight: 600 });
+    txt(ctx, title, x + 72, y + 62, { size: 22, weight: 700 });
+    if (step >= 3) {
+      line(ctx, [[x + 24, y + 96], [x + 331, y + 96]], { color: P.line, width: 1.5 });
+      wrap(ctx, result, x + 24, y + 136, 300, { size: 22, weight: 700, color: P.brandInk });
+      if (ok !== null) txt(ctx, ok ? 'Within the limit' : 'Over the limit', x + 24, y + 180, { size: 15, weight: 700, color: ok ? P.good : P.bad });
+    }
+    if (i < 3) arrowHead(ctx, x + 368, y + 100, 0, 12, P.faint);
+  });
+}
+
+function drawLoad(ctx, step) {
+  const E = EXAMPLE, S = exampleSummary();
+  card(ctx, 60, 140, 1480, 74, { fill: hexA(BRAND.primary, currentTheme() === 'dark' ? 0.35 : 0.08), stroke: hexA(BRAND.primary, 0.35), shadow: false });
+  txt(ctx, `Supply size  =  ( Length × W/ft )  ÷  ${E.derate}   → round up to the next standard size`, 800, 186, { size: 27, weight: 600, align: 'center', color: P.brandInk });
+  const tiles = [
+    { k: 'Length', v: `${fmt(E.runFt)} ft`, at: 2 }, '×',
+    { k: 'Watts per foot', v: `${fmt(E.wPerFt, 2)} W/ft`, at: 2 }, '=',
+    { k: 'Total load', v: `${fmt(S.load)} W`, at: 2, emph: true }, '÷',
+    { k: `${Math.round(E.derate * 100)}% rule`, v: `${E.derate}`, at: 3 }, '=',
+    { k: 'Minimum supply', v: `${fmt(S.min)} W`, at: 3, emph: true }, '→',
+    { k: 'Next size up', v: S.sup ? `${S.sup} W` : 'n/a', at: 4, final: true },
+  ];
+  let x = 80; const y = 250, tw = 205, ow = 46, th = 140;
+  tiles.forEach((t) => {
+    if (typeof t === 'string') { txt(ctx, t, x + ow / 2, y + th / 2 + 2, { size: 38, weight: 300, color: P.muted, align: 'center', baseline: 'middle' }); x += ow; return; }
+    const shown = step >= t.at, fin = t.final && shown;
+    card(ctx, x, y, tw, th, { fill: fin ? P.brand : P.card, stroke: t.emph && shown ? P.brand : P.cardLine, lw: t.emph && shown ? 2.5 : 1.5 });
+    txt(ctx, t.k, x + tw / 2, y + 40, { size: 16, weight: 600, color: fin ? '#dfe9f3' : P.muted, align: 'center' });
+    txt(ctx, shown ? t.v : '?', x + tw / 2, y + 98, { size: 36, weight: 700, color: fin ? '#fff' : shown ? P.ink : P.faint, align: 'center', maxW: tw - 16 });
+    x += tw;
+  });
+  if (step >= 3) {
+    card(ctx, 60, 440, 1000, 400);
+    txt(ctx, 'Standard supply sizes', 90, 482, { size: 18, weight: 700 });
+    let px = 90;
+    EXAMPLE.supplySizes.slice().sort((a, b) => a - b).forEach((s) => {
+      const chosen = step >= 4 && s === S.sup, under = s < S.min;
+      px += pill(ctx, `${s} W`, px, 524, { bg: chosen ? P.brand : under ? 'rgba(0,0,0,0)' : P.soft, color: chosen ? '#fff' : under ? P.faint : P.ink, stroke: under ? P.line : null, size: 17 }) + 10;
+    });
+    txt(ctx, `Sizes under ${fmt(S.min)} W are too small. Round up, never down.`, 90, 572, { size: 16, color: P.muted });
+    card(ctx, 1090, 440, 450, 400, { fill: hexA(BRAND.accent, 0.1), stroke: hexA(BRAND.accent, 0.5), shadow: false });
+    txt(ctx, 'AV analogy', 1120, 486, { size: 15, weight: 700, color: P.muted });
+    wrap(ctx, 'Same as leaving amplifier headroom.', 1120, 528, 390, { size: 26, weight: 700 });
+    wrap(ctx, 'A supply run at 100% runs hot and fails early. Never run a supply at its limit.', 1120, 610, 390, { size: 19, color: P.muted });
+  }
+  if (step >= 4 && S.sup) {
+    const bx0 = 90, bx1 = 1030, by = 650, bh = 50, k = (bx1 - bx0) / S.sup, cap = S.sup * E.derate;
+    txt(ctx, `${S.sup} W supply, loaded with ${fmt(S.load)} W`, bx0, 628, { size: 18, weight: 700 });
+    roundRect(ctx, bx0, by, bx1 - bx0, bh, 8); ctx.fillStyle = P.soft; ctx.fill();
+    hatch(ctx, bx0 + cap * k, by, (S.sup - cap) * k, bh, P.bad);
+    roundRect(ctx, bx0, by, Math.max(8, S.load * k), bh, 8); ctx.fillStyle = P.brand; ctx.fill();
+    txt(ctx, `${fmt(S.load)} W · ${Math.round(S.load / S.sup * 100)}% loaded`, bx0 + 16, by + bh / 2 + 1, { size: 18, weight: 700, color: '#fff', baseline: 'middle' });
+    line(ctx, [[bx0 + cap * k, by - 14], [bx0 + cap * k, by + bh + 14]], { color: P.bad, width: 2.5, dash: [7, 6] });
+    txt(ctx, `${Math.round(E.derate * 100)}% limit · ${fmt(cap)} W`, bx0 + cap * k, by + bh + 38, { size: 16, weight: 700, color: P.bad, align: 'center' });
+    if (cap > S.load) txt(ctx, `${fmt(cap - S.load)} W headroom`, bx0 + (S.load + (cap - S.load) / 2) * k, by - 14, { size: 15, weight: 600, color: P.good, align: 'center' });
+    [0, 0.25, 0.5, 0.75, 1].forEach((f) => txt(ctx, `${fmt(S.sup * f, 0)}`, bx0 + f * (bx1 - bx0), by + bh + 72, { size: 13, color: P.faint, align: 'center' }));
+  }
+}
+
+function drawMaxRun(ctx, step) {
+  const E = EXAMPLE, L = E.runFt, single = CALC.feedPoints('single', L), both = CALC.feedPoints('both', L);
+  const X0 = 150, X1 = 960, Y0 = 190, Y1 = 500, xp = (x) => X0 + (x / L) * (X1 - X0), yp = (b) => Y1 - (b - 0.5) / 0.5 * (Y1 - Y0);
+  card(ctx, 60, 140, 960, 440);
+  for (let b = 0.5; b <= 1.0001; b += 0.1) { line(ctx, [[X0, yp(b)], [X1, yp(b)]], { color: P.line, width: 1 }); txt(ctx, `${Math.round(b * 100)}%`, X0 - 14, yp(b) + 5, { size: 14, color: P.muted, align: 'right' }); }
+  const tick = L <= 24 ? 2 : L <= 60 ? 5 : 10;
+  for (let x = 0; x <= L + 1e-6; x += tick) txt(ctx, `${x}`, xp(x), Y1 + 26, { size: 14, color: P.muted, align: 'center' });
+  txt(ctx, 'Distance along the run (ft)', (X0 + X1) / 2, Y1 + 56, { size: 15, color: P.muted, align: 'center', weight: 600 });
+  txt(ctx, 'Relative brightness', X0, Y0 - 22, { size: 15, color: P.muted, weight: 600 });
+  if (step >= 2 && L > E.maxRunFt) { ctx.fillStyle = hexA(P.bad, 0.08); ctx.fillRect(xp(E.maxRunFt), Y0, X1 - xp(E.maxRunFt), Y1 - Y0); }
+  const curve = (feeds, color) => {
+    ctx.beginPath();
+    for (let i = 0; i <= 160; i++) { const x = L * i / 160, X = xp(x), Y = yp(CALC.brightnessAt(x, feeds, L)); i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }
+    ctx.strokeStyle = color; ctx.lineWidth = 4.5; ctx.stroke();
+  };
+  curve(single, P.warn);
+  if (step >= 3) curve(both, P.good);
+  if (step >= 2 && E.maxRunFt < L) {
+    line(ctx, [[xp(E.maxRunFt), Y0 - 6], [xp(E.maxRunFt), Y1]], { color: P.bad, width: 2.5, dash: [8, 7] });
+    pill(ctx, `Max run · ${fmt(E.maxRunFt)} ft`, xp(E.maxRunFt), Y0 + 2, { bg: P.bad, color: '#fff', size: 15, align: 'center' });
+  }
+  pill(ctx, 'Single-end feed', X0 + 14, Y1 - 28, { bg: hexA(P.warn, 0.15), color: P.warn, size: 15 });
+  if (step >= 3) pill(ctx, 'Both-end feed', X0 + 170, Y1 - 28, { bg: hexA(P.good, 0.15), color: P.good, size: 15 });
+  // strips under the chart, aligned to the x axis
+  const sMin = CALC.minBrightness(single, L), bMin = CALC.minBrightness(both, L);
+  const row = (y, feeds, label, minB, extraWire) => {
+    txt(ctx, label, X0, y - 20, { size: 16, weight: 700 });
+    drawPSU(ctx, 62, y - 22, 70, 44, 'PSU');
+    drawWire2D(ctx, [[132, y], [X0 - 6, y]], ZONE_COLORS[0], { width: 4 });
+    if (extraWire) drawWire2D(ctx, [[97, y + 22], [97, y + 40], [X1 + 16, y + 40], [X1 + 16, y], [X1 + 6, y]], ZONE_COLORS[0], { width: 4 });
+    drawStrip(ctx, X0, y - 8, X1 - X0, 16, (u) => CALC.brightnessAt(u * L, feeds, L));
+    flowDots(ctx, X0, y, X1 - X0, feeds.map((f) => f / L));
+    pill(ctx, `${extraWire ? 'Dimmest ' : 'Far end '}${Math.round(minB.b * 100)}%`, X1, y - 26, { bg: goodBad(minB.b), color: '#fff', size: 14, align: 'right' });
+  };
+  row(640, single, 'Single-end feed', sMin, false);
+  if (step >= 3) { row(760, both, 'Both-end feed (same supply)', bMin, true); txt(ctx, 'Extra wire to the far end', (X0 + X1) / 2, 822, { size: 14, color: P.muted, align: 'center' }); }
+  // explanation cards
+  card(ctx, 1050, 140, 490, 170);
+  txt(ctx, 'Why it fades', 1076, 180, { size: 15, weight: 700, color: P.muted });
+  wrap(ctx, 'Voltage drops along the tape’s own copper. Far from the feed, the tape is dimmer and may shift color.', 1076, 216, 440, { size: 20 });
+  if (step >= 2) {
+    const over = L > E.maxRunFt;
+    card(ctx, 1050, 330, 490, 190, { fill: hexA(over ? P.bad : P.good, 0.08), stroke: hexA(over ? P.bad : P.good, 0.5), shadow: false });
+    drawCheck(ctx, 1090, 378, 20, !over);
+    txt(ctx, over ? `${fmt(L)} ft run > ${fmt(E.maxRunFt)} ft max` : `${fmt(L)} ft run ≤ ${fmt(E.maxRunFt)} ft max`, 1124, 386, { size: 24, weight: 700, maxW: 400 });
+    wrap(ctx, over ? 'A single-end feed doesn’t work. Feed from more than one point, or split the run.' : 'A single-end feed works for this run.', 1076, 436, 440, { size: 19, color: P.muted });
+    txt(ctx, `[Spec max run: ${fmt(E.maxRunFt)} ft]`, 1076, 500, { size: 14, color: P.faint });
+  }
+  if (step >= 3) {
+    card(ctx, 1050, 540, 490, 150, { fill: hexA(P.good, 0.08), stroke: hexA(P.good, 0.5), shadow: false });
+    drawCheck(ctx, 1090, 588, 20, true);
+    txt(ctx, `Both-end feed: dimmest ${Math.round(bMin.b * 100)}%`, 1124, 596, { size: 23, weight: 700, maxW: 400 });
+    wrap(ctx, `Single-end feed bottoms out at ${Math.round(sMin.b * 100)}% at the far end.`, 1076, 644, 440, { size: 18, color: P.muted });
+  }
+}
+
+function drawMethods(ctx, step) {
+  const E = EXAMPLE, L = E.runFt, rec = CALC.recommendFeed(L, E.maxRunFt);
+  const pos = [[60, 140], [820, 140], [60, 480], [820, 480]], w = 720, h = 320;
+  FEED_METHODS.forEach((m, i) => {
+    const [cx, cy] = pos[i];
+    if (step < i + 1) { ghost(ctx, cx, cy, w, h); txt(ctx, m.name, cx + 28, cy + 50, { size: 24, weight: 700, color: P.faint }); return; }
+    const feeds = CALC.feedPoints(m.id, L), mb = CALC.minBrightness(feeds, L);
+    card(ctx, cx, cy, w, h);
+    txt(ctx, m.name, cx + 28, cy + 50, { size: 26, weight: 700 });
+    txt(ctx, `How: ${m.how}`, cx + 28, cy + 86, { size: 17, color: P.muted, maxW: w - 56 });
+    txt(ctx, `Use when: ${m.when}`, cx + 28, cy + 112, { size: 17, maxW: w - 56 });
+    if (step >= 4 && (m.id === rec || (rec === 'both' && m.id === 'center'))) pill(ctx, m.id === rec ? `✓ Our ${fmt(L)} ft example` : '✓ Also works', cx + w - 26, cy + 44, { bg: P.good, color: '#fff', size: 14, align: 'right' });
+    const sx = cx + 160, sw = w - 220, sy = cy + 186;
+    const fx = (p) => sx + (p / L) * sw;
+    drawPSU(ctx, cx + 28, cy + 224, 96, 54, 'PSU');
+    const busY = cy + 251;
+    feeds.forEach((p, k) => {
+      const X = fx(p), lane = busY + k * 0;
+      drawWire2D(ctx, [[cx + 124, lane], [X, lane], [X, sy + 16]], ZONE_COLORS[0], { width: 4 });
+    });
+    drawStrip(ctx, sx, sy, sw, 14, (u) => CALC.brightnessAt(u * L, feeds, L));
+    flowDots(ctx, sx, sy + 7, sw, feeds.map((p) => p / L));
+    feeds.forEach((p) => { ctx.beginPath(); ctx.arc(fx(p), sy + 18, 6, 0, Math.PI * 2); ctx.fillStyle = ZONE_COLORS[0]; ctx.fill(); });
+    txt(ctx, m.note, sx, cy + 300, { size: 14, color: P.muted, maxW: sw - 150 });
+    pill(ctx, `Dimmest ${Math.round(mb.b * 100)}%`, cx + w - 26, cy + 294, { bg: goodBad(mb.b), color: '#fff', size: 14, align: 'right' });
+  });
+  if (step >= 4) {
+    card(ctx, 60, 812, 1480, 46, { fill: hexA(P.bad, 0.08), stroke: hexA(P.bad, 0.45), shadow: false, r: 10 });
+    txt(ctx, '⚠  Never power two ends from two separate supplies (unless the manufacturer allows it), and never connect the outputs of different supplies together.', 800, 841, { size: 16, weight: 600, align: 'center', color: P.ink, maxW: 1440 });
+  }
+}
+
+function drawWireDrop(ctx, step) {
+  const E = EXAMPLE, S = exampleSummary(), W = S.wire, ohm = AWG_OHMS_PER_1000FT[E.wireAwg];
+  const chips = [
+    ['Current', `${fmt(S.load)} W ÷ ${E.volts} V = ${fmt(S.I, 2)} A`],
+    ['Round trip', `2 × ${fmt(E.supplyDistFt)} ft = ${fmt(W.roundTrip)} ft`],
+    ['Resistance', `${fmt(W.roundTrip)} ÷ 1,000 × ${fmt(ohm, 2)} Ω = ${fmt(W.ohms, 2)} Ω`],
+    ['Voltage drop', `${fmt(S.I, 2)} A × ${fmt(W.ohms, 2)} Ω = ${fmt(W.v, 2)} V`],
+  ];
+  chips.forEach(([k, v], i) => {
+    const x = 60 + i * 375, shown = step >= i + 2;
+    if (!shown) { ghost(ctx, x, 140, 355, 96); txt(ctx, k, x + 22, 176, { size: 15, weight: 600, color: P.faint }); return; }
+    card(ctx, x, 140, 355, 96, { stroke: step === i + 2 ? P.brand : P.cardLine, lw: step === i + 2 ? 2.5 : 1.5 });
+    txt(ctx, `${i + 1}. ${k}`, x + 22, 176, { size: 15, weight: 600, color: P.muted });
+    txt(ctx, v, x + 22, 214, { size: 21, weight: 700, maxW: 320 });
+  });
+  card(ctx, 60, 266, 1480, 290);
+  drawPSU(ctx, 100, 336, 170, 120, `${E.volts}V supply`, step >= 2 ? `${fmt(S.I, 2)} A out` : null);
+  const tx0 = 1180, tx1 = 1490;
+  drawStrip(ctx, tx0, 384, tx1 - tx0, 18);
+  txt(ctx, `${fmt(S.load)} W of tape`, (tx0 + tx1) / 2, 440, { size: 16, color: P.muted, align: 'center', weight: 600 });
+  drawWire2D(ctx, [[270, 360], [1120, 360], [1172, 388]], P.bad, { width: 6 });
+  drawWire2D(ctx, [[1172, 398], [1120, 430], [270, 430]], P.wire, { width: 6 });
+  arrowHead(ctx, 700, 360, 0, 16, P.bad); arrowHead(ctx, 690, 430, Math.PI, 16, P.wire);
+  txt(ctx, `+  ${fmt(E.supplyDistFt)} ft out`, 700, 340, { size: 17, weight: 700, align: 'center' });
+  txt(ctx, `−  ${fmt(E.supplyDistFt)} ft back`, 700, 466, { size: 17, weight: 700, align: 'center' });
+  if (step >= 3) pill(ctx, `Round trip: ${fmt(W.roundTrip)} ft`, 940, 395, { bg: P.brand, color: '#fff', size: 16, align: 'center' });
+  if (step >= 4) pill(ctx, `${E.wireAwg} AWG · ≈${fmt(ohm, 2)} Ω per 1,000 ft`, 300, 510, { bg: P.soft, size: 15 });
+  if (step >= 5) {
+    card(ctx, 60, 586, 1000, 250);
+    txt(ctx, 'Voltage at the supply vs. at the tape', 90, 628, { size: 18, weight: 700 });
+    const lo = E.volts * (1 - Math.max(E.dropLimitPct * 1.5, W.pct * 1.4) / 100), hi = E.volts, bx0 = 110, bx1 = 1010, k = (bx1 - bx0) / (hi - lo);
+    const X = (vv) => bx0 + (vv - lo) * k, by = 700;
+    roundRect(ctx, bx0, by, bx1 - bx0, 24, 6); ctx.fillStyle = P.soft; ctx.fill();
+    const vt = E.volts - W.v;
+    roundRect(ctx, X(vt), by, X(hi) - X(vt), 24, 6); ctx.fillStyle = hexA(W.pct <= E.dropLimitPct ? P.good : P.bad, 0.55); ctx.fill();
+    const lim = E.volts * (1 - E.dropLimitPct / 100);
+    line(ctx, [[X(lim), by - 16], [X(lim), by + 40]], { color: P.bad, width: 2.5, dash: [7, 6] });
+    txt(ctx, `${E.dropLimitPct}% limit · ${fmt(lim, 2)} V`, X(lim), by + 62, { size: 15, weight: 700, color: P.bad, align: 'center' });
+    pill(ctx, `At supply ${fmt(hi, 2)} V`, X(hi), by - 30, { bg: P.card, stroke: P.line, size: 14, align: 'right' });
+    pill(ctx, `At tape ${fmt(vt, 2)} V`, X(vt), by + 62, { bg: P.card, stroke: P.line, size: 14, align: X(vt) - X(lim) < 140 ? 'left' : 'center' });
+    txt(ctx, `${fmt(W.v, 2)} V drop = ${fmt(W.pct)}% of ${E.volts} V`, bx0, 812, { size: 18, weight: 700, color: P.brandInk });
+  }
+  if (step >= 6) {
+    const ok = W.pct <= E.dropLimitPct;
+    card(ctx, 1090, 586, 450, 250, { fill: hexA(ok ? P.good : P.bad, 0.08), stroke: hexA(ok ? P.good : P.bad, 0.5), shadow: false });
+    drawCheck(ctx, 1130, 634, 22, ok);
+    txt(ctx, ok ? `Within the ${E.dropLimitPct}% guideline` : `Over the ${E.dropLimitPct}% guideline`, 1166, 642, { size: 22, weight: 700, maxW: 360 });
+    wrap(ctx, ok ? 'Keep the supply close to the tape, and use heavier wire as the distance grows.' : 'Move up a gauge, or move the supply closer to the tape.', 1116, 690, 400, { size: 19, color: P.muted });
+  }
+}
+
+function drawGaugeTable(ctx, step) {
+  const E = EXAMPLE, rows = [1, 2, 3, 4, 5, 6, 8], cols = [5, 10, 15, 20, 25, 30, 40, 50];
+  const S = exampleSummary(), exRow = rows.find((r) => r >= S.I - 1e-9) ?? rows[rows.length - 1], exCol = cols.find((c) => c >= E.supplyDistFt - 1e-9) ?? cols[cols.length - 1];
+  const tx = 60, ty = 150, lw = 250, cw = (1480 - lw) / cols.length, rh = 74;
+  const shade = { 18: 0.12, 16: 0.28, 14: 0.45, 12: 0.65, 10: 0.85 };
+  card(ctx, tx, ty, 1480, 60 + rh * rows.length + 10);
+  txt(ctx, 'Current  (≈ load at ' + E.volts + ' V)', tx + 24, ty + 38, { size: 15, weight: 700, color: P.muted });
+  cols.forEach((c, j) => txt(ctx, `${c} ft`, tx + lw + j * cw + cw / 2, ty + 38, { size: 17, weight: 700, align: 'center', color: c === exCol && step >= 2 ? P.brandInk : P.ink }));
+  txt(ctx, 'One-way distance, supply to tape →', tx + lw + 4, ty - 10, { size: 14, color: P.muted, weight: 600 });
+  rows.forEach((r, i) => {
+    const y = ty + 60 + i * rh;
+    txt(ctx, `${r} A`, tx + 24, y + rh / 2 - 4, { size: 22, weight: 700, color: r === exRow && step >= 2 ? P.brandInk : P.ink });
+    txt(ctx, `≈ ${r * E.volts} W`, tx + 110, y + rh / 2 - 4, { size: 15, color: P.muted });
+    cols.forEach((c, j) => {
+      const g = CALC.gaugeFor(r, c), x = tx + lw + j * cw;
+      roundRect(ctx, x + 4, y + 4, cw - 8, rh - 8, 8);
+      ctx.fillStyle = g ? hexA(BRAND.primary, shade[g]) : hexA(P.bad, 0.12); ctx.fill();
+      const dark = g && shade[g] >= 0.45;
+      if (g) {
+        txt(ctx, `${g} AWG`, x + cw / 2, y + rh / 2 - 4, { size: 19, weight: 700, align: 'center', color: dark ? '#fff' : P.ink });
+        txt(ctx, `${fmt(CALC.wire(r, c, g).pct)}%`, x + cw / 2, y + rh / 2 + 18, { size: 13, align: 'center', color: dark ? '#dbe6f1' : P.muted });
+      } else txt(ctx, 'move closer', x + cw / 2, y + rh / 2 + 4, { size: 14, weight: 600, align: 'center', color: P.bad });
+      if (step >= 2 && r === exRow && c === exCol) { roundRect(ctx, x + 1, y + 1, cw - 2, rh - 2, 10); ctx.lineWidth = 4; ctx.strokeStyle = BRAND.accent; ctx.stroke(); }
+    });
+  });
+  const ly = ty + 60 + rh * rows.length + 46;
+  txt(ctx, `Smallest gauge that keeps the round-trip drop within ${E.dropLimitPct}% of ${E.volts} V (2-conductor copper). Cell shows the resulting drop.`, tx, ly, { size: 15, color: P.muted, maxW: step >= 2 ? 900 : 1480 });
+  if (step >= 2) {
+    const g = CALC.gaugeFor(S.I, E.supplyDistFt), own = S.wire;
+    card(ctx, 990, ly - 26, 550, 92, { fill: hexA(BRAND.accent, 0.12), stroke: BRAND.accent, shadow: false });
+    txt(ctx, `Running example: ${fmt(S.I, 2)} A at ${fmt(E.supplyDistFt)} ft`, 1012, ly + 6, { size: 18, weight: 700, maxW: 510 });
+    txt(ctx, g ? `${g} AWG minimum (${fmt(CALC.wire(S.I, E.supplyDistFt, g).pct)}%) · ${E.wireAwg} AWG gives ${fmt(own.pct)}%` : 'No listed gauge works. Move the supply closer.', 1012, ly + 38, { size: 16, color: P.muted, maxW: 510 });
+  }
+}
+
+function drawCut(ctx, step) {
+  const C = cutMath(), bx0 = 100, bx1 = 1500, pxIn = (bx1 - bx0) / C.runIn, tapeX = bx0 + C.tapeIn * pxIn;
+  dimH(ctx, bx0, bx1, 168, `${fmtLen(C.runIn * IN)} = ${fmt(C.runIn, 2)} in run`, { size: 17 });
+  roundRect(ctx, bx0, 200, bx1 - bx0, 44, 6); ctx.fillStyle = P.channel; ctx.fill();
+  roundRect(ctx, bx0 + 4, 211, Math.max(0, tapeX - bx0 - 4), 22, 3); ctx.fillStyle = litColor(1).getStyle(); ctx.fill();
+  if (step >= 2) {
+    const every = C.iv * pxIn < 6 ? Math.ceil(6 / (C.iv * pxIn)) : 1;
+    for (let k = 1; k <= C.seg; k += every) { const x = bx0 + k * C.iv * pxIn; line(ctx, [[x, 208], [x, 236]], { color: hexA('#000000', 0.35), width: 1.2 }); }
+    dimH(ctx, bx0, tapeX, 290, `${C.seg} segments × ${fmt(C.iv, 2)} in = ${fmt(C.tapeIn, 2)} in of tape`, { size: 17 });
+  }
+  if (C.dark > 0) hatch(ctx, tapeX, 206, bx1 - tapeX, 32, P.warn);
+  ctx.fillStyle = '#5a616c'; ctx.fillRect(bx1, 196, 8, 52);
+  txt(ctx, 'Profile (cut to length)', bx0, 266, { size: 14, color: P.muted });
+  if (step < 3) return;
+  const winIn = Math.min(C.runIn, C.iv * 4 + Math.max(C.dark, C.iv * 0.5) + 1), w0 = C.runIn - winIn;
+  const hx0 = bx0 + w0 * pxIn;
+  roundRect(ctx, hx0 - 4, 192, bx1 - hx0 + 16, 60, 6); ctx.lineWidth = 2.5; ctx.strokeStyle = P.brand; ctx.stroke();
+  const ix0 = 160, ix1 = 1400, pI = (ix1 - ix0) / winIn, X = (inch) => ix0 + (inch - w0) * pI;
+  line(ctx, [[(hx0 + bx1) / 2, 252], [(hx0 + bx1) / 2, 340]], { color: P.brand, width: 2, dash: [6, 6] });
+  card(ctx, 100, 340, 1400, 300, { stroke: P.brand, lw: 2 });
+  ctx.fillStyle = P.soft; ctx.fillRect(ix0, 414, ix1 - ix0, 152);
+  ctx.fillStyle = P.channel; ctx.fillRect(ix0, 400, ix1 - ix0, 14); ctx.fillRect(ix0, 566, ix1 - ix0, 14);
+  const tEnd = X(C.tapeIn);
+  ctx.fillStyle = P.pcb; ctx.fillRect(ix0, 446, tEnd - ix0, 88);
+  line(ctx, [[ix0, 446], [tEnd, 446]], { color: P.faint, width: 1 }); line(ctx, [[ix0, 534], [tEnd, 534]], { color: P.faint, width: 1 });
+  const firstSeg = Math.floor(w0 / C.iv + 1e-9);
+  for (let s = firstSeg; s < C.seg; s++) {
+    for (let k = 0; k < EXAMPLE.ledsPerSegment; k++) {
+      const inch = s * C.iv + C.iv * (k + 0.5) / EXAMPLE.ledsPerSegment, x = X(inch);
+      if (x < ix0 + 10) continue;
+      ctx.fillStyle = lightLevel() > 0 ? litColor(1).getStyle() : COLORS.chip;
+      roundRect(ctx, x - 13, 477, 26, 26, 3); ctx.fill();
+      ctx.strokeStyle = hexA('#000000', 0.25); ctx.lineWidth = 1; ctx.stroke();
+    }
+  }
+  const cuts = []; for (let s = Math.ceil(w0 / C.iv - 1e-9); s <= C.seg; s++) { const inch = s * C.iv; if (inch > w0 + 0.05) cuts.push(inch); }
+  cuts.forEach((inch) => {
+    const x = X(inch);
+    ctx.fillStyle = '#c98a3e';
+    [[x - 15, 454], [x + 3, 454], [x - 15, 512], [x + 3, 512]].forEach(([px, py]) => { if (px + 12 <= tEnd + 0.5) ctx.fillRect(px, py, 12, 16); });
+    line(ctx, [[x, 432], [x, 548]], { color: P.ink, width: 2, dash: [6, 5] });
+  });
+  if (cuts.length >= 2) {
+    const a = X(cuts[cuts.length - 3] ?? cuts[0]), b = X(cuts[cuts.length - 2] ?? cuts[1]);
+    dimH(ctx, a, b, 380, `${fmt(C.iv, 2)} in cut interval`, { size: 16 });
+    txt(ctx, '✂', a, 428, { size: 24, align: 'center', color: P.ink });
+    pill(ctx, 'Cut only on the marked line (copper pads)', a - 20, 610, { bg: P.soft, size: 15, align: 'right' });
+  }
+  if (C.dark > 0) {
+    hatch(ctx, tEnd, 414, ix1 - tEnd, 152, P.warn);
+    dimH(ctx, tEnd, ix1, 604, `${fmt(C.dark, 2)} in dark end`, { color: P.warn, size: 16 });
+    pill(ctx, `Last cut · ${fmt(C.tapeIn, 2)} in`, tEnd, 380, { bg: P.ink, color: P.card, size: 14, align: 'right' });
+  } else pill(ctx, 'No dark end: tape fills the run', ix1 - 10, 604, { bg: P.good, color: '#fff', size: 15, align: 'right' });
+  roundRect(ctx, ix1, 392, 34, 196, 6); ctx.fillStyle = '#5a616c'; ctx.fill();
+  txt(ctx, 'End cap', ix1 + 17, 380, { size: 15, weight: 700, align: 'center' });
+  txt(ctx, '← run continues', ix0 + 6, 396, { size: 14, color: P.muted });
+  if (step < 4) return;
+  txt(ctx, 'Decide how to handle the dark end. Measure twice: field dimensions beat drawings, and corners and returns add or subtract length.', 100, 682, { size: 17, color: P.muted, maxW: 1400 });
+  [['Accept the gap', `${fmt(C.dark, 2)} in is rarely noticed at normal viewing distance.`],
+   ['Hide it under the end cap', 'Use a cap or shroud that covers the unlit length.'],
+   ['Adjust the profile length', `Cut the profile to ${fmt(C.tapeIn, 2)} in, so the tape fills it.`]].forEach(([t, d], i) => {
+    const x = 100 + i * 475;
+    card(ctx, x, 702, 455, 140);
+    badge(ctx, i + 1, x + 36, 740, 18);
+    txt(ctx, t, x + 66, 748, { size: 22, weight: 700, maxW: 370 });
+    wrap(ctx, d, x + 26, 790, 405, { size: 17, color: P.muted });
+  });
+}
+
+function drawChecklist(ctx, step) {
+  CHECKLIST.forEach(([t, d], i) => {
+    const c = i % 3, r = Math.floor(i / 3), x = 60 + c * 500, y = 140 + r * 238, w = 480, h = 216;
+    if (step < i + 1) { ghost(ctx, x, y, w, h); badge(ctx, i + 1, x + 46, y + 52, 24, P.line); txt(ctx, t, x + 86, y + 61, { size: 24, weight: 700, color: P.faint }); return; }
+    card(ctx, x, y, w, h, { stroke: step === i + 1 ? P.brand : P.cardLine, lw: step === i + 1 ? 2.5 : 1.5 });
+    badge(ctx, i + 1, x + 46, y + 52, 24);
+    txt(ctx, t, x + 86, y + 61, { size: 25, weight: 700, maxW: w - 110 });
+    wrap(ctx, d, x + 30, y + 118, w - 60, { size: 20, color: P.muted });
+  });
+}
+
+function drawTakeoff(ctx, step) {
+  const Z = takeoff(), E = EXAMPLE;
+  // ---- plan (feet → slide units)
+  card(ctx, 40, 132, 760, 728);
+  const k = 30, ox = 95, oy = 190, p = (x, y) => [ox + x * k, oy + y * k];
+  const wall = (pts) => line(ctx, pts.map(([x, y]) => p(x, y)), { color: P.muted, width: 6 });
+  wall([[0, 0], [18, 0], [18, 1.5]]); wall([[18, 3.5], [18, 14], [5, 14]]); wall([[2, 14], [0, 14], [0, 0]]);
+  wall([[18, 0], [22, 0], [22, 5], [18, 5]]);
+  wall([[0, 14], [0, 18], [18, 18], [18, 14]]);
+  txt(ctx, 'Living room', ...p(9, 8), { size: 20, weight: 600, color: P.faint, align: 'center' });
+  txt(ctx, 'Hall', ...p(11.5, 15.2), { size: 18, weight: 600, color: P.faint, align: 'center' });
+  txt(ctx, 'Closet', ...p(20, 4.3), { size: 15, weight: 600, color: P.faint, align: 'center' });
+  ctx.fillStyle = P.soft; const cb = p(2.5, 16.6); ctx.fillRect(cb[0], cb[1], 13 * k, 1.4 * k);
+  txt(ctx, 'Built-in cabinets', ...p(9, 17.55), { size: 13, color: P.faint, align: 'center' });
+  const z1 = Z[0], z2 = Z[1];
+  const covePath = z1.legs.length > 1
+    ? [[17.4 - z1.legs[0], 0.6], [17.4, 0.6], [17.4, 0.6 + z1.legs[1]]]
+    : [[17.4 - z1.legs[0], 0.6], [17.4, 0.6]];
+  const toePath = z2 ? [[3, 16.75], [3 + z2.legs[0], 16.75]] : [];
+  if (step >= 2) {
+    line(ctx, covePath.map(([x, y]) => p(x, y)), { color: z1.color, width: 9 });
+    if (z2) line(ctx, toePath.map(([x, y]) => p(x, y)), { color: z2.color, width: 9 });
+    pill(ctx, z1.name, ...p(17.4 - z1.legs[0] / 2, 3.1), { bg: z1.color, color: '#fff', size: 16, align: 'center' });
+    if (z2) pill(ctx, z2.name, ...p(3 + z2.legs[0] / 2, 15.6), { bg: z2.color, color: '#fff', size: 16, align: 'center' });
+  }
+  if (step >= 3) {
+    dimH(ctx, p(17.4 - z1.legs[0], 0)[0], p(17.4, 0)[0], p(0, 1.6)[1], `${fmt(z1.legs[0])} ft`, { size: 14 });
+    if (z1.legs.length > 1) { const a = p(16.2, 0.6), b = p(16.2, 0.6 + z1.legs[1]); line(ctx, [a, b], { color: P.muted, width: 1.5 }); pill(ctx, `${fmt(z1.legs[1])} ft`, a[0], (a[1] + b[1]) / 2, { bg: P.card, stroke: P.muted, size: 14, align: 'center' }); }
+    if (z2) dimH(ctx, p(3, 0)[0], p(3 + z2.legs[0], 0)[0], p(0, 18.9)[1], `${fmt(z2.legs[0])} ft`, { size: 14 });
+    const mark = (x, y, kind, color) => {
+      const [X, Y] = p(x, y);
+      if (kind === 'end') { ctx.fillStyle = P.ink; ctx.fillRect(X - 6, Y - 6, 12, 12); }
+      else if (kind === 'corner') { ctx.beginPath(); ctx.arc(X, Y, 9, 0, Math.PI * 2); ctx.lineWidth = 3; ctx.strokeStyle = P.ink; ctx.stroke(); }
+      else if (kind === 'join') line(ctx, [[X - 2, Y - 11], [X - 2, Y + 11]], { color: P.ink, width: 3 });
+      else if (kind === 'feed') { ctx.beginPath(); ctx.moveTo(X, Y - 18); ctx.lineTo(X - 9, Y - 2); ctx.lineTo(X + 9, Y - 2); ctx.closePath(); ctx.fillStyle = color; ctx.fill(); }
+    };
+    const runMarks = (path, zone) => {
+      mark(...path[0], 'end'); mark(...path[path.length - 1], 'end');
+      for (let i = 1; i < path.length - 1; i++) mark(...path[i], 'corner');
+      for (let s = 0; s < path.length - 1; s++) {
+        const [ax, ay] = path[s], [bx, by] = path[s + 1], len = Math.hypot(bx - ax, by - ay);
+        for (let d = E.profileStickFt; d < len - 1e-6; d += E.profileStickFt) mark(ax + (bx - ax) * d / len, ay + (by - ay) * d / len, 'join');
+      }
+      if (step >= 6) {
+        const total = zone.len;
+        zone.feeds.forEach((f) => { let rem = f; for (let s = 0; s < path.length - 1; s++) { const [ax, ay] = path[s], [bx, by] = path[s + 1], len = Math.hypot(bx - ax, by - ay); if (rem <= len + 1e-6) { mark(ax + (bx - ax) * rem / len, ay + (by - ay) * rem / len, 'feed', zone.color); break; } rem -= len; } });
+        void total;
+      }
+    };
+    runMarks(covePath, z1); if (z2) runMarks(toePath, z2);
+  }
+  if (step >= 6) {
+    const s1 = p(20.4, 1.6); drawPSU(ctx, s1[0] - 34, s1[1] - 20, 68, 40, `${z1.supply ?? '—'}W`);
+    line(ctx, [[s1[0], s1[1] - 20], p(20.4, -0.25), p(17.4 - z1.legs[0], -0.25), p(17.4 - z1.legs[0], 0.6)], { color: z1.color, width: 2.5, dash: [8, 6] });
+    if (z1.feeds.length > 1) line(ctx, [[s1[0] + 34, s1[1]], p(21.4, 1.6), p(21.4, 0.6 + (z1.legs[1] || 0)), p(17.4, 0.6 + (z1.legs[1] || 0))], { color: z1.color, width: 2.5, dash: [8, 6] });
+    pill(ctx, `≈${fmt(z1.dist)} ft`, ...p(12, -0.25), { bg: P.card, stroke: z1.color, size: 13, align: 'center' });
+    if (z2) {
+      const s2 = p(16.9, 15.0); drawPSU(ctx, s2[0] - 34, s2[1] - 18, 68, 36, `${z2.supply ?? '—'}W`);
+      line(ctx, [[s2[0], s2[1] + 18], p(16.9, 16.75), p(3 + z2.legs[0], 16.75)], { color: z2.color, width: 2.5, dash: [8, 6] });
+    }
+    [[p(3.5, 13.5), z1.color, 'D1'], [p(0.6, 15.2), z2 ? z2.color : P.ink, 'D2']].forEach(([[x, y], c, t]) => { roundRect(ctx, x - 14, y - 14, 28, 28, 5); ctx.fillStyle = c; ctx.fill(); txt(ctx, t, x, y + 1, { size: 12, weight: 700, color: '#fff', align: 'center', baseline: 'middle' }); });
+  }
+  if (step >= 3) {
+    const ly = 838; let lx = 64;
+    [['end', 'End'], ['corner', 'Corner'], ['join', 'Join'], ...(step >= 6 ? [['feed', 'Feed'], ['psu', 'Supply']] : [])].forEach(([kd, label]) => {
+      if (kd === 'end') { ctx.fillStyle = P.ink; ctx.fillRect(lx, ly - 6, 12, 12); }
+      else if (kd === 'corner') { ctx.beginPath(); ctx.arc(lx + 6, ly, 7, 0, Math.PI * 2); ctx.lineWidth = 3; ctx.strokeStyle = P.ink; ctx.stroke(); }
+      else if (kd === 'join') line(ctx, [[lx + 6, ly - 9], [lx + 6, ly + 9]], { color: P.ink, width: 3 });
+      else if (kd === 'feed') { ctx.beginPath(); ctx.moveTo(lx + 6, ly - 9); ctx.lineTo(lx - 2, ly + 6); ctx.lineTo(lx + 14, ly + 6); ctx.closePath(); ctx.fillStyle = P.ink; ctx.fill(); }
+      else { roundRect(ctx, lx - 2, ly - 8, 20, 16, 3); ctx.fillStyle = '#4c535e'; ctx.fill(); }
+      lx += 22 + txt(ctx, label, lx + 20, ly + 5, { size: 14, color: P.muted }) + 18;
+    });
+  }
+  // ---- takeoff table
+  if (step >= 4) {
+    const tx = 825, cols = [['Zone', 116], ['Length', 62], ['Tape', 104], ['Profile + lens', 134], ['Load', 66], ['Feed', 92], ['Supply', 62], ['Control', 76]];
+    card(ctx, tx, 132, 730, 72 + 70 * Math.min(Z.length, step - 3));
+    let x = tx + 14;
+    cols.forEach(([h, w]) => { txt(ctx, h, x, 166, { size: 14, weight: 700, color: P.muted }); x += w; });
+    Z.slice(0, step - 3).forEach((z, i) => {
+      const y = 204 + i * 70; x = tx + 14;
+      line(ctx, [[tx + 10, y - 12], [tx + 720, y - 12]], { color: P.line, width: 1 });
+      const cells = [
+        [z.name, `${z.legs.map((l) => fmt(l)).join(' + ')} ft`, z.color],
+        [`${fmt(z.len)} ft`, `${z.legs.length} leg${z.legs.length > 1 ? 's' : ''}`],
+        [z.tape, `${fmt(z.wPerFt, 2)} W/ft`],
+        [z.profile, z.lens],
+        [`${fmt(z.load)} W`, `min ${fmt(z.min)} W`],
+        [methodById(z.method).name.replace(' feed', '').replace('Power injection', 'Injection'), `max ${fmt(z.maxRun)} ft`],
+        [z.supply ? `${z.supply} W` : '—', ''],
+        [z.control, ''],
+      ];
+      cells.forEach(([main, sub, color], j) => {
+        const w = cols[j][1];
+        txt(ctx, main, x, y + 14, { size: 15, weight: 700, color: color || P.ink, maxW: w - 8 });
+        if (sub) txt(ctx, sub, x, y + 36, { size: 13, color: P.muted, maxW: w - 8 });
+        x += w;
+      });
+    });
+  }
+  if (step >= 6) {
+    const tx = 825, ty = 132 + 72 + 70 * Z.length + 24, rowsA = [
+      ['End caps', PARTS.endCap, (z) => z.endCaps],
+      ['Mounting clips', `${PARTS.clip} @ ${E.clipSpacingIn} in`, (z) => z.clips],
+      ['Profile sticks', `${PARTS.stick} · ${E.profileStickFt} ft`, (z) => z.sticks],
+      ['Joiners', PARTS.joiner, (z) => z.joiners],
+      ['Corners', PARTS.corner, (z) => z.corners],
+      ['Connectors', PARTS.connector, (z) => z.connectors],
+      ['Jumpers', PARTS.jumper, (z) => z.jumpers],
+      ['Supply-to-tape wire', `${E.wireAwg} AWG · +${E.wastePct}%`, (z) => z.wireOrder, ' ft'],
+      ['Tape', `+${E.wastePct}% waste`, (z) => z.tapeOrder, ' ft'],
+    ];
+    const rh = Math.min(38, (850 - ty - 52) / rowsA.length);
+    card(ctx, tx, ty, 730, 52 + rh * rowsA.length + 8);
+    const cx = [tx + 16, tx + 230, tx + 470, tx + 560, tx + 650];
+    ['Accessory', 'Part #', ...Z.map((z) => z.name.split(' ')[0]), 'Total'].slice(0, 2 + Z.length + 1).forEach((h, j) => txt(ctx, h, j < 2 + Z.length ? cx[j] : cx[4], ty + 34, { size: 14, weight: 700, color: j >= 2 && j < 2 + Z.length ? Z[j - 2].color : P.muted }));
+    rowsA.forEach(([name, part, fn, unit = ''], i) => {
+      const y = ty + 52 + i * rh + rh / 2 + 5;
+      txt(ctx, name, cx[0], y, { size: 15, weight: 600, maxW: 205 });
+      txt(ctx, part, cx[1], y, { size: 13, color: P.muted, maxW: 230 });
+      let total = 0;
+      Z.forEach((z, j) => { const v = fn(z); total += v; txt(ctx, `${v}${unit}`, cx[2 + j], y, { size: 15 }); });
+      txt(ctx, `${total}${unit}`, cx[4], y, { size: 15, weight: 700 });
+    });
+  }
+}
+
+function drawMistakes(ctx, step) {
+  MISTAKES.forEach(([m, fix, ref], i) => {
+    const y = 140 + i * 142, h = 124;
+    if (step < i + 1) { ghost(ctx, 60, y, 1480, h); txt(ctx, m, 150, y + 70, { size: 24, weight: 700, color: P.faint }); return; }
+    card(ctx, 60, y, 1480, h, { stroke: step === i + 1 ? P.brand : P.cardLine, lw: step === i + 1 ? 2.5 : 1.5 });
+    drawCheck(ctx, 106, y + h / 2, 24, false);
+    wrap(ctx, m, 150, y + 56, 560, { size: 25, weight: 700, lh: 32 });
+    arrowHead(ctx, 772, y + h / 2, 0, 16, P.faint); line(ctx, [[730, y + h / 2], [764, y + h / 2]], { color: P.faint, width: 3 });
+    drawCheck(ctx, 818, y + h / 2, 20, true);
+    wrap(ctx, fix, 856, y + 54, 520, { size: 20, color: P.ink });
+    pill(ctx, `See ${ref}`, 1516, y + h / 2, { bg: P.soft, size: 14, align: 'right', color: P.muted });
+  });
+}
+
+/* ---------- 3D training scenes ---------- */
+const trainScene = new THREE.Scene();
+const emptyScene = new THREE.Scene();
+(() => {
+  trainScene.add(new THREE.HemisphereLight(0xffffff, 0xcfd3d9, 0.55));
+  const k = new THREE.DirectionalLight(0xffffff, 0.55); k.position.set(4, 9, 7); trainScene.add(k);
+  const f = new THREE.DirectionalLight(0xffffff, 0.2); f.position.set(-5, 4, 6); trainScene.add(f);
+  trainScene.add(new THREE.AmbientLight(0xffffff, 0.12));
+})();
+const trainRoot = new THREE.Group(); trainScene.add(trainRoot);
+
+function tMats() {
+  const cct = cctColor(), I = lightLevel();
+  const chip = MAT.chip.clone(); chip.emissive.copy(cct).lerp(new THREE.Color('#ffb347'), 0.35); chip.emissiveIntensity = 0.75 * I;
+  const pcb = MAT.pcb.clone(); pcb.color.set('#e9e2cf'); pcb.emissive.copy(cct); pcb.emissiveIntensity = 0.05 * I;
+  return {
+    alu: MAT.aluminum.clone(), alu2: Object.assign(MAT.aluminum.clone(), { color: new THREE.Color('#b8c0c9') }), cap: MAT.cap.clone(), pcb, chip,
+    conn: MAT.connector.clone(), contact: MAT.contact.clone(),
+    copper: new THREE.MeshStandardMaterial({ color: '#c98a3e', metalness: 0.7, roughness: 0.35, envMap: ENV_MAP }),
+    arch: new THREE.MeshStandardMaterial({ color: COLORS.arch, roughness: 0.92 }),
+    floor: new THREE.MeshStandardMaterial({ color: COLORS.floor, roughness: 0.95 }),
+    dark: new THREE.MeshStandardMaterial({ color: '#2b3038', roughness: 0.6 }),
+    flex: new THREE.MeshStandardMaterial({ color: '#efe6cf', roughness: 0.5, emissive: cct, emissiveIntensity: 0.15 * I }),
+    joiner: new THREE.MeshStandardMaterial({ color: '#6f7781', metalness: 0.7, roughness: 0.4, envMap: ENV_MAP }),
+    red: new THREE.MeshStandardMaterial({ color: '#d64545', roughness: 0.5 }), black: new THREE.MeshStandardMaterial({ color: '#2a2e35', roughness: 0.5 }),
+  };
+}
+function tBox(parent, b, mat, edges = true) {
+  const g = boxGeo(...b), m = new THREE.Mesh(g, mat);
+  if (edges) m.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 30), archEdgeMat));
+  parent.add(m); return m;
+}
+/** Channel along local +Z, optionally mitered (±1 = which side gets longer). */
+function tChannel(P0, len, mat, { miterStart = 0, miterEnd = 0 } = {}) {
+  const d = profileDims(P0), geo = new THREE.ExtrudeGeometry(shapeChannel(d), { depth: len, bevelEnabled: false });
+  if (miterStart || miterEnd) {
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const z = pos.getZ(i), x = pos.getX(i);
+      if (miterEnd && Math.abs(z - len) < 1e-7) pos.setZ(i, len + miterEnd * x);
+      if (miterStart && Math.abs(z) < 1e-7) pos.setZ(i, -miterStart * x);
+    }
+    geo.computeVertexNormals();
+  }
+  return new THREE.Mesh(geo, mat);
+}
+/** Tape (PCB + LED chips) along local Z from z0 to z1 inside a channel. */
+function tTape(parent, d, z0, z1, mats, chipZs) {
+  const pcb = new THREE.Mesh(new THREE.BoxGeometry(d.tapeW, d.pcbT, z1 - z0), mats.pcb);
+  pcb.position.set(0, d.t + d.pcbT / 2, (z0 + z1) / 2); parent.add(pcb);
+  const nChips = Math.max(1, Math.floor((z1 - z0) * 60));
+  const zs = chipZs || Array.from({ length: nChips }, (_, k) => z0 + (k + 0.5) * (z1 - z0) / nChips);
+  const chips = new THREE.InstancedMesh(new THREE.BoxGeometry(...d.chip), mats.chip, zs.length), m4 = new THREE.Matrix4();
+  zs.forEach((z, k) => { m4.makeTranslation(0, d.t + d.pcbT + d.chip[1] / 2, z); chips.setMatrixAt(k, m4); });
+  parent.add(chips);
+}
+function tCap(parent, d, z, mat) { const c = new THREE.Mesh(new THREE.ExtrudeGeometry(shapeCap(d), { depth: d.capT, bevelEnabled: false }), mat); c.position.z = z; parent.add(c); return c; }
+function tConnector(parent, d, z, mats) {
+  const c = new THREE.Mesh(new THREE.BoxGeometry(11 * MM, 3.2 * MM, 10 * MM), mats.conn); c.position.set(0, d.t + d.pcbT + 1.6 * MM, z);
+  const k = new THREE.Mesh(new THREE.BoxGeometry(7 * MM, 0.4 * MM, 4 * MM), mats.contact); k.position.y = 1.8 * MM; c.add(k);
+  parent.add(c); return c;
+}
+/** A leg group whose local +Z runs along world +X ('x') or world +Z ('z'). */
+function tLeg(parent, origin, dir) {
+  const g = new THREE.Group(); g.position.copy(v3(origin)); if (dir === 'x') g.rotation.y = Math.PI / 2;
+  parent.add(g); return g;
+}
+function tPSU(parent, pos, normal) {
+  const n = v3(normal).normalize(), xA = new THREE.Vector3(1, 0, 0), zA = new THREE.Vector3().crossVectors(xA, n);
+  const g = new THREE.Group(), L = 0.22, T = 0.042, Wd = 0.07;
+  g.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA, n, zA)); g.position.copy(v3(pos));
+  const body = new THREE.Mesh(boxGeo(-L / 2, L / 2, 0, T, -Wd / 2, Wd / 2), MAT.psuBody.clone()); g.add(body);
+  const lab = new THREE.Mesh(boxGeo(-L * 0.28, L * 0.3, T, T + 0.0012, -Wd * 0.36, Wd * 0.36), MAT.psuLabel.clone()); g.add(lab);
+  const br = new THREE.Mesh(boxGeo(-L * 0.28, -L * 0.16, T + 0.0012, T + 0.0018, -Wd * 0.36, Wd * 0.36), MAT.brand.clone()); g.add(br);
+  [-1, 1].forEach((s) => g.add(new THREE.Mesh(boxGeo(s > 0 ? L / 2 : -L / 2 - 0.012, s > 0 ? L / 2 + 0.012 : -L / 2, 0.006, T * 0.8, -Wd * 0.38, Wd * 0.38), MAT.terminal.clone())));
+  parent.add(g); g.updateMatrixWorld(true);
+  return { group: g, out: g.localToWorld(new THREE.Vector3(L / 2 + 0.014, T / 2, 0)), top: g.localToWorld(new THREE.Vector3(0, T, 0)) };
+}
+let _dashCanvas = null;
+function flowWire(group, pts, color, radius, anim) {
+  const path = roundedPath(pts.map(v3), 0.05), len = path.getLength(), segs = Math.max(16, Math.ceil(len / 0.02));
+  group.add(new THREE.Mesh(new THREE.TubeGeometry(path, segs, radius, 8, false), new THREE.MeshStandardMaterial({ color, roughness: 0.45 })));
+  if (lightLevel() > 0) {
+    if (!_dashCanvas) { _dashCanvas = makeCanvas(64, 4); const x = _dashCanvas.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 22, 4); }
+    const tex = new THREE.CanvasTexture(_dashCanvas); tex.wrapS = THREE.RepeatWrapping; tex.repeat.set(len / 0.16, 1);
+    const fm = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.9, depthWrite: false });
+    fm.userData.ownMap = true;
+    group.add(new THREE.Mesh(new THREE.TubeGeometry(path, segs, radius * 1.15, 8, false), fm));
+    anim.push(fm);
+  }
+  return { path, len };
+}
+function profileTexture(bFn, peak, sigma) {
+  const W = 256, H = 64, c = makeCanvas(W, H), ctx = c.getContext('2d'), img = ctx.createImageData(W, H);
+  for (let x = 0; x < W; x++) {
+    const u = (x + 0.5) / W, b = Math.pow(bFn(u), 1.7), e = smooth01(Math.min(u, 1 - u) / 0.02);
+    for (let y = 0; y < H; y++) {
+      const v = (y + 0.5) / H, dv = (v - peak) / sigma, i = (y * W + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255; img.data[i + 3] = Math.round(255 * Math.exp(-dv * dv * 2.4) * b * e);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.flipY = false; return t;
+}
+const feedOffset = () => Math.max(0.6, EXAMPLE.supplyDistFt * FT - 2.2);
+
+/** 3.2 / 3.3 — a cove run on a wall, lit with the brightness profile of a feed method. */
+function buildFeedScene(method) {
+  const E = EXAMPLE, g = new THREE.Group(), L = E.runFt * FT, a = feedOffset(), mats = tMats(), I = lightLevel(), anim = [];
+  const feeds = CALC.feedPoints(method, E.runFt), bFn = (u) => CALC.brightnessAt(u * E.runFt, feeds, E.runFt);
+  const xL = -a - 0.9, xR = L + 0.5;
+  tBox(g, [xL, xR, 0, 2.7, -0.12, 0], mats.arch);
+  tBox(g, [xL, xR, -0.04, 0, -0.12, 1.3], mats.floor, false);
+  const ceil = new THREE.MeshStandardMaterial({ color: COLORS.arch, roughness: 0.92, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide });
+  tBox(g, [xL, xR, 2.7, 2.72, -0.12, 1.2], ceil);
+  tBox(g, [0, L, 2.30, 2.34, 0, 0.2], mats.arch); tBox(g, [0, L, 2.27, 2.35, 0.2, 0.22], mats.arch);
+  const door = new THREE.BufferGeometry().setFromPoints([[-a - 0.45, 0], [-a - 0.45, 2.05], [-a + 0.45, 2.05], [-a + 0.45, 0]].map(([x, y]) => new THREE.Vector3(x, y, 0.002)));
+  g.add(new THREE.Line(door, new THREE.LineBasicMaterial({ color: COLORS.archEdge })));
+  const P0 = PROFILES.deep, d = profileDims(P0), cg = tLeg(g, [0, 2.34, 0.1], 'x');
+  cg.add(tChannel(P0, L, mats.alu));
+  const nx = Math.max(10, Math.ceil(L / 0.02)), bar = new THREE.BoxGeometry(L, 0.012, d.W * 0.85, nx, 1, 1);
+  bar.translate(L / 2, 0, 0);
+  const pos = bar.attributes.position, col = [];
+  for (let i = 0; i < pos.count; i++) { const c = litColor(bFn(clamp(pos.getX(i) / L, 0, 1))); col.push(c.r, c.g, c.b); }
+  bar.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const barM = new THREE.Mesh(bar, new THREE.MeshBasicMaterial({ vertexColors: true })); barM.position.set(0, 2.34 + d.H + 0.004, 0.1); g.add(barM);
+  if (I > 0) {
+    [[[0, 2.40, 0.004], [L, 0, 0], [0, 0.30, 0], 0.0, 0.9, 0.85], [[0, 2.697, 0.0], [L, 0, 0], [0, 0, 1.15], 0.1, 0.55, 1.0]].forEach(([o, u, vv, peak, sigma, kk]) => {
+      const m = new THREE.MeshBasicMaterial({ map: profileTexture(bFn, peak, sigma), color: cctColor().lerp(new THREE.Color('#ff9a3c'), 0.25), transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: clamp(0.95 * kk * I, 0, 0.97), polygonOffset: true, polygonOffsetFactor: -2 });
+      m.userData.ownMap = true;
+      const q = new THREE.Mesh(quadGeometry(o, u, vv), m); q.renderOrder = 1; g.add(q);
+    });
+  }
+  const psu = tPSU(g, [-a, 1.3, 0], [0, 0, 1]);
+  const wires = feeds.map((p, k) => {
+    const pm = p * FT, lane = 0.05 + k * 0.035, y = 2.86 + k * 0.03, endX = pm <= 0 ? -0.006 : pm >= L ? L + 0.006 : pm;
+    return flowWire(g, [psu.out, [psu.out.x + 0.06, psu.out.y, lane], [psu.out.x + 0.06, y, lane], [pm, y, lane], [pm, 2.46, lane], [endX, 2.37, 0.1]], ZONE_COLORS[0], 0.012, anim);
+  });
+  return { group: g, meta: { L, a, feeds, bFn, wires, psu, anim, method } };
+}
+function feedView() {
+  const L = EXAMPLE.runFt * FT, a = feedOffset(), span = L + a + 1.4, fov = 36;
+  const r = (span * 0.5 / Math.min(1.5, viewW / viewH)) / Math.tan(THREE.MathUtils.degToRad(fov / 2)) * 0.9;
+  return { mode: 'train', type: 'persp', target: [(L - a) / 2 - 0.35, 1.9, 0.3], theta: -0.36, phi: 1.36, radius: r * 1.12, fov };
+}
+function feedOverlay(ctx, w, h, proj, meta, { tags = true, maxRun = false } = {}) {
+  const E = EXAMPLE, L = meta.L, S = trainLabelScale(w, h), th = LABEL_THEMES[currentTheme()];
+  const at = (x, y, z) => proj(new THREE.Vector3(x, y, z));
+  drawDimension(ctx, { a: [0, 2.27, 0.22], b: [L, 2.27, 0.22], off: [0, -0.35, 0], text: `${fmt(E.runFt)} ft run` }, proj, th, S);
+  if (maxRun && E.maxRunFt < E.runFt) {
+    const p0 = at(E.maxRunFt * FT, 2.28, 0.22), p1 = at(E.maxRunFt * FT, 2.72, 0.22);
+    if (p0 && p1) { line(ctx, [[p0.x, p0.y], [p1.x, p1.y - 30 * S]], { color: P.bad, width: 2.5 * S, dash: [8 * S, 6 * S] }); pill(ctx, `Max run, single-end feed · ${fmt(E.maxRunFt)} ft`, p1.x, p1.y - 44 * S, { bg: P.bad, color: '#fff', size: 14 * S, align: 'center' }); }
+  }
+  if (tags) {
+    const mb = CALC.minBrightness(meta.feeds, E.runFt), xs = [0, E.runFt, ...meta.feeds];
+    if (mb.at > 0.01 && mb.at < E.runFt - 0.01) xs.push(mb.at);
+    [...new Set(xs.map((x) => Math.round(x * 100) / 100))].forEach((x) => {
+      const p = at(x * FT, 2.55, 0.02); if (!p) return;
+      const b = CALC.brightnessAt(x, meta.feeds, E.runFt);
+      pill(ctx, `${Math.round(b * 100)}%`, p.x, p.y, { bg: goodBad(b), color: '#fff', size: 14 * S, align: 'center' });
+    });
+  }
+  const w0 = meta.wires[0]; if (w0) { const m = proj(w0.path.getPointAt(0.25)); if (m) pill(ctx, `≈${fmt(EXAMPLE.supplyDistFt)} ft to supply`, m.x + 12 * S, m.y, { bg: P.card, stroke: ZONE_COLORS[0], size: 13 * S }); }
+  if (meta.wires.length > 1 && meta.method === 'both') { const m = proj(meta.wires[1].path.getPointAt(0.62)); if (m) pill(ctx, 'Extra wire to the far end (same supply)', m.x, m.y - 20 * S, { bg: P.card, stroke: ZONE_COLORS[0], size: 13 * S, align: 'center' }); }
+  callouts3D(ctx, w, h, proj, [{ at: meta.psu.top, dx: 50, dy: -60, title: 'Power supply', sub: `${EXAMPLE.volts}V · ${exampleSummary().sup ?? '—'} W · in closet`, color: ZONE_COLORS[0] }]);
+  const mb = CALC.minBrightness(meta.feeds, E.runFt);
+  withSlide(ctx, w, h, () => {
+    const y = state.trainHeading ? 150 : 70;
+    const pw = pill(ctx, methodById(meta.method).name, 60, y, { bg: P.brand, color: '#fff', size: 18 });
+    pill(ctx, `Dimmest point ${Math.round(mb.b * 100)}%`, 60 + pw + 12, y, { bg: goodBad(mb.b), color: '#fff', size: 18 });
+  });
+}
+
+/** 4.1 — close-up of the end of a run: cut points, pads, dark end, end cap. */
+function buildCutScene() {
+  const C = cutMath(), g = new THREE.Group(), mats = tMats(), P0 = PROFILES.surface, d = profileDims(P0);
+  const winIn = Math.min(C.runIn, 12), w0 = C.runIn - winIn, Lc = winIn * IN, z = (inch) => (inch - w0) * IN;
+  tBox(g, [-0.05, Lc + 0.06, -0.008, 0, -0.06, 0.06], mats.arch);
+  const cg = tLeg(g, [0, 0, 0], 'x');
+  cg.add(tChannel(P0, Lc, mats.alu));
+  const zEnd = z(C.tapeIn), chipZs = [];
+  for (let s = Math.floor(w0 / C.iv); s < C.seg; s++) for (let k = 0; k < EXAMPLE.ledsPerSegment; k++) { const inch = s * C.iv + C.iv * (k + 0.5) / EXAMPLE.ledsPerSegment; if (inch > w0 + 0.1 && inch < C.tapeIn) chipZs.push(z(inch)); }
+  if (zEnd > 0.002) tTape(cg, d, 0, zEnd, mats, chipZs);
+  const cuts = []; for (let s = Math.ceil(w0 / C.iv - 1e-9); s <= C.seg; s++) { const inch = s * C.iv; if (inch > w0 + 0.05) cuts.push(z(inch)); }
+  const padY = d.t + d.pcbT + 0.15 * MM;
+  cuts.forEach((zc) => {
+    [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => {
+      const zz = zc + sz * 2.2 * MM; if (zz > zEnd + 1e-6) return;
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(d.tapeW * 0.32, 0.3 * MM, 3.4 * MM), mats.copper); pad.position.set(sx * d.tapeW * 0.24, padY, zz); cg.add(pad);
+    }));
+    const cl = new THREE.Mesh(new THREE.BoxGeometry(d.tapeW * 1.02, 0.35 * MM, 0.35 * MM), mats.dark); cl.position.set(0, padY + 0.2 * MM, zc); cg.add(cl);
+  });
+  tCap(cg, d, Lc, mats.cap);
+  g.updateMatrixWorld(true);
+  const W = (x, y, zz) => cg.localToWorld(new THREE.Vector3(x, y, zz));
+  const cutRef = cuts[Math.max(0, cuts.length - 3)] ?? 0;
+  return { group: g, meta: { C, Lc, d, cutRef, zEnd, W, prevCut: cuts[Math.max(0, cuts.length - 2)] ?? 0 } };
+}
+function cutView() {
+  const L = Math.min(EXAMPLE.cutRunIn, 12) * IN;
+  return { mode: 'train', type: 'persp', target: [L - 0.085, 0.004, 0.0], theta: 0.42, phi: 0.92, radius: 0.36, fov: 32 };
+}
+function cutOverlay(ctx, w, h, proj, meta) {
+  const { C, Lc, d, W } = meta, S = trainLabelScale(w, h), th = LABEL_THEMES[currentTheme()], top = d.t + d.pcbT;
+  if (C.dark > 0) drawDimension(ctx, { a: W(0, top, meta.zEnd), b: W(0, top, Lc), off: [0, 0, 0.022], text: `${fmt(C.dark, 2)} in dark end` }, proj, th, S);
+  drawDimension(ctx, { a: W(0, top, meta.cutRef), b: W(0, top, meta.prevCut), off: [0, 0, -0.022], text: `${fmt(C.iv, 2)} in cut interval` }, proj, th, S);
+  callouts3D(ctx, w, h, proj, [
+    { at: W(0, top + 0.6 * MM, meta.prevCut), dx: -60, dy: -150, title: `Cut point · every ${fmt(C.iv, 2)} in`, sub: 'Cut only on the marked line', color: BRAND.primary },
+    { at: W(d.tapeW * 0.24, top, meta.cutRef - 2.2 * MM), dx: -220, dy: 60, title: 'Copper pads', sub: 'Solder or connector contacts', color: BRAND.primary },
+    { at: W(0, top, meta.zEnd), dx: 120, dy: -150, title: `Last cut · ${fmt(C.tapeIn, 2)} in`, sub: `${C.seg} segments of ${fmt(C.iv, 2)} in`, color: BRAND.primary },
+    { at: W(0, d.H * 0.7, Lc + d.capT / 2), dx: 110, dy: 30, title: 'End cap', sub: 'Can hide a short dark end', color: BRAND.primary },
+  ]);
+  withSlide(ctx, w, h, () => pill(ctx, `${fmtLen(C.runIn * IN)} run = ${fmt(C.runIn, 2)} in · tape ${fmt(C.tapeIn, 2)} in · diffuser removed for clarity`, 60, state.trainHeading ? 150 : 70, { bg: P.soft, size: 17 }));
+}
+
+/** 4.2 — four ways through a corner or join (step k shows items 1..k). */
+const CORNER_ITEMS = ['Mitered corner + flexible connector', 'Pre-formed corner profile', 'Jumper wire across the corner', 'Straight join: joiner + connector'];
+function buildCornersScene(step) {
+  const g = new THREE.Group(), mats = tMats(), P0 = PROFILES.surface, d = profileDims(P0), leg = 0.27, items = [];
+  const cells = [[-0.37, -0.3], [0.37, -0.3], [-0.37, 0.36], [0.37, 0.36]];
+  const tapeY = d.t + d.pcbT;
+  for (let k = 0; k < Math.min(step, 4); k++) {
+    const [cx, cz] = cells[k], it = new THREE.Group(); g.add(it);
+    tBox(g, [cx - 0.34, cx + 0.34, -0.012, 0, cz - 0.29, cz + 0.29], mats.arch);
+    const anchors = [];
+    if (k < 3) it.position.set(cx + 0.12, 0, cz - 0.13); else it.position.set(cx, 0, cz);
+    if (k === 0) {
+      const A = tLeg(it, [-leg, 0, 0], 'x'); A.add(tChannel(P0, leg, mats.alu, { miterEnd: 1 })); tTape(A, d, 0.006, leg - 0.016, mats); tCap(A, d, -d.capT, mats.cap); tConnector(A, d, leg - 0.02, mats);
+      const B = tLeg(it, [0, 0, 0], 'z'); B.add(tChannel(P0, leg, mats.alu, { miterStart: 1 })); tTape(B, d, 0.016, leg - 0.006, mats); tCap(B, d, leg, mats.cap); tConnector(B, d, 0.02, mats);
+      tBox(it, [-0.017, d.tapeW / 2, tapeY, tapeY + 0.3 * MM, -d.tapeW / 2, d.tapeW / 2], mats.flex, false);
+      tBox(it, [-d.tapeW / 2, d.tapeW / 2, tapeY, tapeY + 0.3 * MM, -d.tapeW / 2, 0.017], mats.flex, false);
+      anchors.push({ p: [d.W * 0.45, d.H, -d.W * 0.45], t: '45° mitered profiles', s: 'Cut both pieces at 45°', dx: 60, dy: -70 },
+        { p: [-0.006, tapeY, 0.004], t: 'Flexible L connector', s: 'Carries power around the corner', dx: -140, dy: 60 });
+    } else if (k === 1) {
+      const r = 0.035;
+      const A = tLeg(it, [-leg, 0, 0], 'x'); A.add(tChannel(P0, leg, mats.alu)); tTape(A, d, 0.006, leg, mats); tCap(A, d, -d.capT, mats.cap);
+      class Arc extends THREE.Curve { getPoint(t, o = new THREE.Vector3()) { const a = t * Math.PI / 2; return o.set(r * Math.sin(a), 0, r - r * Math.cos(a)); } }
+      const arc = new Arc();
+      it.add(new THREE.Mesh(new THREE.ExtrudeGeometry(shapeChannel(d), { steps: 24, bevelEnabled: false, extrudePath: arc }), mats.alu2));
+      const ts = new THREE.Shape(); ts.moveTo(-d.tapeW / 2, d.t); ts.lineTo(d.tapeW / 2, d.t); ts.lineTo(d.tapeW / 2, d.t + d.pcbT); ts.lineTo(-d.tapeW / 2, d.t + d.pcbT); ts.closePath();
+      it.add(new THREE.Mesh(new THREE.ExtrudeGeometry(ts, { steps: 24, bevelEnabled: false, extrudePath: arc }), mats.pcb));
+      const B = tLeg(it, [r, 0, r], 'z'); B.add(tChannel(P0, leg, mats.alu)); tTape(B, d, 0, leg - 0.006, mats); tCap(B, d, leg, mats.cap);
+      anchors.push({ p: [r * 0.71, d.H, r * 0.29], t: 'Pre-formed corner profile', s: 'Factory 90° piece, no field miter', dx: 70, dy: -70 },
+        { p: [r * 0.5, tapeY, r * 0.13], t: 'Tape continues through', s: 'Side-bend tape or a connector', dx: -150, dy: 70 });
+    } else if (k === 2) {
+      const gap = 0.032;
+      const A = tLeg(it, [-leg, 0, 0], 'x'); A.add(tChannel(P0, leg - gap, mats.alu)); tTape(A, d, 0.006, leg - gap - 0.004, mats); tCap(A, d, -d.capT, mats.cap); tCap(A, d, leg - gap, mats.cap); tConnector(A, d, leg - gap - 0.012, mats);
+      const B = tLeg(it, [0, 0, gap], 'z'); B.add(tChannel(P0, leg - gap, mats.alu)); tTape(B, d, 0.004, leg - gap - 0.006, mats); tCap(B, d, -d.capT, mats.cap); tCap(B, d, leg - gap, mats.cap); tConnector(B, d, 0.012, mats);
+      const y0 = tapeY + 1.6 * MM, pA = [-gap + 0.004, y0, 0], pB = [0, y0, gap - 0.004];
+      const pts = [pA, [-gap + 0.016, y0 + 0.006, 0.0], [0.004, y0 + 0.03, -0.03], [0.04, y0 + 0.045, -0.012], [0.042, y0 + 0.04, 0.02], [0.014, y0 + 0.022, 0.03], [0.002, y0 + 0.008, gap + 0.008], pB];
+      [[mats.red, 0], [mats.black, 0.004]].forEach(([m, off]) => {
+        const c = new THREE.CatmullRomCurve3(pts.map(([x, y, z]) => new THREE.Vector3(x, y + off, z + off * 0.5)));
+        it.add(new THREE.Mesh(new THREE.TubeGeometry(c, 80, 0.0022, 8, false), m));
+      });
+      anchors.push({ p: [0.04, y0 + 0.045, -0.012], t: 'Jumper wire across the corner', s: 'Short jumper keeps light continuous', dx: 70, dy: -60 },
+        { p: [-gap - 0.008, tapeY, 0], t: 'Solderless connectors', s: 'Test before closing up', dx: -150, dy: -70 },
+        { p: [0.042, y0 + 0.04, 0.02], t: 'Service loop', s: 'Strain relief: no pull on the joint', dx: 80, dy: 50 });
+    } else {
+      const A = tLeg(it, [-leg, 0.003, 0], 'x'); A.add(tChannel(P0, leg - 0.0006, mats.alu)); tTape(A, d, 0.006, leg - 0.009, mats); tCap(A, d, -d.capT, mats.cap);
+      const B = tLeg(it, [0.0006, 0.003, 0], 'x'); B.add(tChannel(P0, leg, mats.alu)); tTape(B, d, 0.009, leg - 0.006, mats); tCap(B, d, leg, mats.cap);
+      tBox(it, [-0.035, 0.035, 0, 0.003, -d.W * 0.42, d.W * 0.42], mats.joiner, false);
+      const conn = new THREE.Mesh(new THREE.BoxGeometry(0.022, 3.2 * MM, 11 * MM), mats.conn); conn.position.set(0, 0.003 + tapeY + 1.6 * MM, 0); it.add(conn);
+      const ct = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.4 * MM, 7 * MM), mats.contact); ct.position.y = 1.8 * MM; conn.add(ct);
+      anchors.push({ p: [0.03, 0.0015, d.W * 0.42], t: 'Profile joiner', s: 'Aligns and locks the two sticks', dx: 70, dy: 70 },
+        { p: [0, 0.003 + tapeY + 3.2 * MM, 0], t: 'Solderless tape connector', s: 'Power up and check the join', dx: 70, dy: -80 });
+    }
+    it.updateMatrixWorld(true);
+    items.push({ title: CORNER_ITEMS[k], label: new THREE.Vector3(cx, 0, cz + 0.31), anchors: anchors.map((a) => ({ ...a, w: it.localToWorld(v3(a.p)) })) });
+  }
+  return { group: g, meta: { items } };
+}
+function cornersView() { const k = Math.max(1, 1.5 / (viewW / viewH)); return { mode: 'train', type: 'persp', target: [0, 0, 0.0], theta: 0.0, phi: 0.62, radius: 2.6 * k, fov: 32 }; }
+function cornersOverlay(ctx, w, h, proj, meta) {
+  const S = trainLabelScale(w, h);
+  meta.items.forEach((it, k) => { const p = proj(it.label); if (p) pill(ctx, `${k + 1} · ${it.title}`, p.x, p.y, { bg: P.brand, color: '#fff', size: 14 * S, align: 'center' }); });
+  callouts3D(ctx, w, h, proj, meta.items.flatMap((it) => it.anchors.map((a) => ({ at: a.w, dx: a.dx, dy: a.dy, title: a.t, sub: a.s, color: BRAND.primary }))));
+  withSlide(ctx, w, h, () => pill(ctx, 'Diffusers removed for clarity', 60, state.trainHeading ? 150 : 70, { bg: P.soft, size: 16 }));
+}
+
+function trainLabelScale(w, h) { return state.labelScale * clamp(Math.min(w / 1600, h / 900) * 1.35, 0.85, 1.6); }
+function callouts3D(ctx, w, h, proj, items) {
+  const th = LABEL_THEMES[currentTheme()], S = trainLabelScale(w, h), boxes = [];
+  items.forEach((it) => {
+    const A = proj(it.at); if (!A) return;
+    const l = { kind: 'callout', title: it.title, sub: it.sub }, m = measureLabel(ctx, l, S);
+    const Lx = A.x + it.dx * S, Ly = A.y + it.dy * S;
+    boxes.push({ l, m, A, x: it.dx >= 0 ? Lx : Lx - m.w, y: Ly - m.h / 2, w: m.w, h: m.h, color: it.color || BRAND.primary });
+  });
+  resolveOverlaps(boxes, w, h, 6 * S);
+  boxes.forEach((b) => drawLeader(ctx, b, th, S));
+  boxes.forEach((b) => drawLabelBox(ctx, b, th, S));
+}
+
+/* ---------- the visual registry (order = panel order) ---------- */
+const TRAINING_VISUALS = [
+  { id: 'ex', section: '3', group: '3 · The math', title: 'The running example', subtitle: 'One example carried through all four calculations', kind: '2d', steps: 3,
+    stepLabels: ['The example', 'Four calculations', 'Results preview'], draw: drawExample },
+  { id: 'load', section: '3.1', group: '3 · The math', title: 'Load and power supply size', subtitle: 'Length × W/ft, then the 80% rule', kind: '2d', steps: 4,
+    stepLabels: ['Formula', 'Total load', '80% rule', 'Next size up'], draw: drawLoad },
+  { id: 'maxrun', section: '3.2', group: '3 · The math', title: 'Maximum run length', subtitle: 'Brightness along a long run, single-end vs. both-end feed', kind: '2d', steps: 3,
+    stepLabels: ['Single-end fade', 'Max run exceeded', 'Both-end feed'], draw: drawMaxRun, animated: true },
+  { id: 'feed3d-32', section: '3.2', group: '3 · The math', title: 'A long run fading (3D)', subtitle: () => `${fmt(EXAMPLE.runFt)} ft cove fed from one end, then from both ends`, kind: '3d', steps: 3,
+    stepLabels: ['Single-end feed', 'Max run & brightness', 'Fixed: both-end feed'], animated: true,
+    build: (step) => buildFeedScene(step >= 3 ? 'both' : 'single'), key: (step) => (step >= 3 ? 'both' : 'single'), view: feedView,
+    overlay: (ctx, w, h, proj, step, meta) => feedOverlay(ctx, w, h, proj, meta, { tags: step >= 2, maxRun: step >= 2 }) },
+  { id: 'methods', section: '3.3', group: '3 · The math', title: 'Feed methods', subtitle: 'Where the power goes in, and how current flows', kind: '2d', steps: 4,
+    stepLabels: FEED_METHODS.map((m) => m.name), draw: drawMethods, animated: true },
+  { id: 'feed3d-33', section: '3.3', group: '3 · The math', title: 'Feed method in 3D', subtitle: () => `${fmt(EXAMPLE.runFt)} ft cove · pick the method in the panel`, kind: '3d', steps: 1, animated: true,
+    options: [{ id: 'method', label: 'Feed method', choices: FEED_METHODS.map((m) => [m.id, m.name]), def: () => CALC.recommendFeed(EXAMPLE.runFt, EXAMPLE.maxRunFt) }],
+    build: (step, o) => buildFeedScene(o.method), key: (step, o) => o.method, view: feedView,
+    overlay: (ctx, w, h, proj, step, meta) => feedOverlay(ctx, w, h, proj, meta, { tags: true, maxRun: meta.method === 'single' }) },
+  { id: 'drop', section: '3.4', group: '3 · The math', title: 'Wire gauge: voltage drop to the tape', subtitle: 'The wire from the supply to the tape drops voltage too', kind: '2d', steps: 6,
+    stepLabels: ['The circuit', 'Current', 'Round trip', 'Resistance', 'Voltage drop', 'Verdict'], draw: drawWireDrop, animated: true },
+  { id: 'gauge', section: '3.4', group: '3 · The math', title: 'Wire gauge vs. distance', subtitle: () => `Recommended minimum gauge · ${EXAMPLE.volts} V · ≤ ${EXAMPLE.dropLimitPct}% drop`, kind: '2d', steps: 2,
+    stepLabels: ['Cheat sheet', 'Running example'], draw: drawGaugeTable },
+  { id: 'cut', section: '4.1', group: '4 · Building a custom run', title: 'Custom lengths and cut intervals', subtitle: 'Tape cuts only at marked intervals; the lit length snaps to them', kind: '2d', steps: 4,
+    stepLabels: ['Run length', 'Cut segments', 'Dark end close-up', 'Decision'], draw: drawCut },
+  { id: 'cut3d', section: '4.1', group: '4 · Building a custom run', title: 'Cut point and dark end (3D)', subtitle: 'Close-up of the end of the run', kind: '3d', steps: 1,
+    build: () => buildCutScene(), key: () => 'cut', view: cutView, overlay: (ctx, w, h, proj, step, meta) => cutOverlay(ctx, w, h, proj, meta) },
+  { id: 'corners3d', section: '4.2', group: '4 · Building a custom run', title: 'Corners, joins, and jumpers', subtitle: 'Four ways through a corner or a join', kind: '3d', steps: 4,
+    stepLabels: CORNER_ITEMS, build: (step) => buildCornersScene(step), key: (step) => step, view: cornersView,
+    overlay: (ctx, w, h, proj, step, meta) => cornersOverlay(ctx, w, h, proj, meta) },
+  { id: 'checklist', section: '4.3', group: '4 · Building a custom run', title: 'The takeoff, step by step', subtitle: 'Do it the same way every time', kind: '2d', steps: 9,
+    stepLabels: CHECKLIST.map((c) => c[0]), draw: drawChecklist },
+  { id: 'takeoff', section: '4.3', group: '4 · Building a custom run', title: 'Plan and takeoff table', subtitle: 'Zones color-coded on the plan; the takeoff built row by row', kind: '2d', steps: 6,
+    stepLabels: ['Plan', 'Mark zones', 'Measure runs', 'Row: zone 1', 'Row: zone 2', 'Accessories, feeds & supplies'], draw: drawTakeoff },
+  { id: 'mistakes', section: '4.4', group: '4 · Building a custom run', title: 'Common quoting mistakes', subtitle: 'And the fix for each', kind: '2d', steps: 5,
+    stepLabels: MISTAKES.map((m) => m[0]), draw: drawMistakes },
+];
+const currentVisual = () => TRAINING_VISUALS.find((v) => v.id === state.trainVisual) || TRAINING_VISUALS[0];
+function visualOpts(v) {
+  const o = Object.assign({}, state.trainOpts[v.id] || {});
+  (v.options || []).forEach((op) => { if (o[op.id] === undefined) o[op.id] = resolve(op.def); });
+  return o;
+}
+function trainStep() { return clamp(state.trainStep, 1, currentVisual().steps); }
+
+/** Build (or reuse) the current 3D visual's scene; rebuilds when inputs, lighting or step change. */
+let trainGroup = null, trainMeta = null, trainKey = '';
+function disposeGroup(g) {
+  g.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) [].concat(o.material).forEach((m) => { if (m === archEdgeMat) return; if (m.userData.ownMap && m.map) m.map.dispose(); m.dispose(); });
+  });
+}
+function ensureTrain3D(v) {
+  const step = trainStep(), o = visualOpts(v);
+  const key = JSON.stringify([v.id, v.key ? v.key(step, o) : null, EXAMPLE, state.cct, state.glow, state.dim, state.brightness]);
+  if (key === trainKey && trainGroup) return;
+  if (trainGroup) { trainRoot.remove(trainGroup); disposeGroup(trainGroup); }
+  const r = v.build(step, o);
+  trainGroup = r.group; trainMeta = r.meta; trainKey = key;
+  trainRoot.add(trainGroup);
+}
+function drawTraining(ctx, w, h, cam) {
+  const v = currentVisual(), step = trainStep();
+  P = slidePalette();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (v.kind === '3d' && trainMeta) {
+    cam.updateMatrixWorld();
+    const proj = (p) => { _pv.copy(p).project(cam); if (_pv.z > 1 || _pv.z < -1) return null; return { x: (_pv.x + 1) / 2 * w, y: (1 - _pv.y) / 2 * h }; };
+    v.overlay && v.overlay(ctx, w, h, proj, step, trainMeta);
+  }
+  withSlide(ctx, w, h, () => { if (v.kind === '2d') v.draw(ctx, step); drawHeading(ctx, v); drawFootnote(ctx); });
+}
+function showVisual(id, { keepView = false, step } = {}) {
+  state.trainVisual = id;
+  const v = currentVisual();
+  state.trainStep = step ?? v.steps;
+  state.viewName = `${v.section} ${v.title}`;
+  rig.enabled = v.kind === '3d';
+  rig.enableRotate = true;
+  if (v.kind === '3d') {
+    rig.camera = perspCam;
+    if (!keepView) { const vw = v.view(); rig.target.fromArray(vw.target); rig.theta = vw.theta; rig.phi = vw.phi; rig.radius = vw.radius; setFov(vw.fov); rig.update(); }
+  }
+  updateBadge(); syncUI(); requestRender();
+}
+function exportBaseName() {
+  if (state.mode !== 'train') return state.viewName;
+  const v = currentVisual();
+  return `${v.section}-${v.title}${v.steps > 1 ? `-step-${trainStep()}-of-${v.steps}` : ''}`;
+}
+async function exportAllSteps() {
+  const v = currentVisual(), keep = state.trainStep;
+  for (let s = 1; s <= v.steps; s++) {
+    state.trainStep = s; syncUI();
+    await exportPNG(exportBaseName(), { quiet: true });
+    await new Promise((r) => setTimeout(r, 450));
+  }
+  state.trainStep = keep; syncUI(); requestRender();
+  toast(`Exported ${v.steps} build step${v.steps > 1 ? 's' : ''} of “${v.title}”`);
+}
+/** Record the animated visual to a video file (MP4 where the browser supports it, otherwise WebM). */
+async function recordAnimation(seconds = 6) {
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  const type = window.MediaRecorder && types.find((t) => MediaRecorder.isTypeSupported(t));
+  if (!type) { toast('This browser cannot record video'); return; }
+  const rc = makeCanvas(glCanvas.width - (glCanvas.width % 2), glCanvas.height - (glCanvas.height % 2));
+  recording = { rc, ctx: rc.getContext('2d') };
+  const chunks = [], rec = new MediaRecorder(rc.captureStream(30), { mimeType: type, videoBitsPerSecond: 10e6 });
+  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  const stopped = new Promise((r) => (rec.onstop = r));
+  state.animPlay = true; syncUI();
+  renderFrame(); rec.start(); toast(`Recording ${seconds} s…`);
+  await new Promise((r) => setTimeout(r, seconds * 1000));
+  rec.stop(); await stopped; recording = null;
+  const ext = type.includes('mp4') ? 'mp4' : 'webm';
+  downloadBlob(new Blob(chunks, { type }), `${slug(BRAND.name)}_${slug(exportBaseName())}_${timestamp()}.${ext}`);
+  toast(`Saved ${ext.toUpperCase()} video`);
+}
+
+/* Training inputs shown in the panel (key, label, unit, kind) */
+const EXAMPLE_INPUTS = [
+  ['runFt', 'Run length', 'ft'], ['wPerFt', 'Tape power', 'W/ft'], ['volts', 'Voltage', 'V'], ['supplyDistFt', 'Supply distance', 'ft'],
+  ['derate', 'Derating factor', '×'], ['supplySizes', 'Supply sizes', 'W', 'list'], ['maxRunFt', 'Max run (single-end)', 'ft'],
+  ['injectEveryFt', 'Injection spacing', 'ft'], ['dropAtMaxPct', 'Tape drop at max run', '%'],
+  ['wireAwg', 'Supply-wire gauge', 'AWG', 'awg'], ['dropLimitPct', 'Wire drop limit', '%'],
+  ['cutRunIn', 'Cut example run', 'in'], ['cutIntervalIn', 'Cut interval', 'in'], ['ledsPerSegment', 'LEDs per segment', ''],
+  ['profileStickFt', 'Profile stick length', 'ft'], ['clipSpacingIn', 'Clip spacing', 'in'], ['wastePct', 'Waste allowance', '%'],
+];
+const ZONE2_INPUTS = [['name', 'Name', '', 'text'], ['legsFt', 'Length', 'ft', 'leg'], ['wPerFt', 'Tape power', 'W/ft'], ['supplyDistFt', 'Supply distance', 'ft'], ['maxRunFt', 'Max run', 'ft']];
 
 /* =====================================================================
    INIT
@@ -2323,7 +3658,7 @@ updateBadge(); syncUI(); applyVisibility();
 requestAnimationFrame(loop);
 
 // Handy for scripting screenshots from the browser console
-window.LEDViz = { state, ZONES, LAYERS, layerOn, zoneOn, getView, setView, applyPreset, setMode, exportPNG, renderPNGBlob, onLayersChanged, updateLighting, applyExplode, applySection };
+window.LEDViz = { state, ZONES, LAYERS, EXAMPLE, TRAINING_VISUALS, showVisual: (...a) => showVisual(...a), exportAllSteps: () => exportAllSteps(), syncUI: () => syncUI(), layerOn, zoneOn, getView, setView, applyPreset, setMode, exportPNG, renderPNGBlob, onLayersChanged, updateLighting, applyExplode, applySection };
 </script>
 </body>
 </html>
