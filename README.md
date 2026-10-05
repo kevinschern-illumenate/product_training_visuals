@@ -6,8 +6,48 @@ A single-file, interactive 3D model of a residential LED tape lighting system, b
 clean, presentation-ready images for training slides. No build step: open the HTML file in a desktop
 browser (Chrome, Edge, Firefox, Safari). The only dependency is Three.js r128, loaded from cdnjs.
 
+### Design system
+The visualizer and everything it exports follow the **ilLumenate Lighting design system**. That covers
+the app UI, the slides, PNG exports, the guide video and the printable guide.
+
+- **Color:** brand tokens only.
+  - Primary navy `#172E48` for text.
+  - Secondary blue `#00588C` for actions, active states and accents.
+  - Accent gold `#FDC757` for highlights. Text on gold is always navy.
+  - The tint and shade ramps for each.
+  - The navy background preset (`Navy`) uses the brand's dark surface.
+- **Type:** headings use Manrope Semibold; body copy uses Poppins Light, with Poppins Medium for
+  emphasis. The fonts are embedded as Latin-subset WOFF2, so the file still works offline and stays
+  single-file.
+- **Logo:** the supplied primary logo, recolored only to brand navy and white, never redrawn. It
+  appears in the panel header, bottom-right of every slide and export, and in the printable guide.
+- **Shapes:**
+  - Corner radii never exceed 20px; cards use 10% of their shortest side.
+  - Buttons, segmented controls and chips are pills.
+  - Strokes are 0.5–1pt.
+  - Shadows are the soft card shadow.
+- **Brand gradient:** the linear navy → blue gradient with a gold glow, used in the panel header and
+  the printable-guide header.
+- **Icons:** line icons (Lucide paths at a 1.5px stroke, the design system's stand-in for the brand
+  icon set) replace the old unicode glyphs, both in the UI and on the slides.
+- **Product colors:**
+  - Color-temperature swatches use the brand Kelvin tokens. Light washes deepen the pale 3000–4000K
+    tokens slightly so they read on white.
+  - RGB tape types use the brand RGB-product palette.
+  - Physical materials stay realistic: aluminum, copper, LED phosphor, wire insulation and drywall.
+
+The tokens live in two places: CSS custom properties in `<style>`, and `DS` in section 0 of the
+script. Helpers in section 0:
+- `cssFont()` maps a weight to the brand faces;
+- `inkOn()` picks navy or white text for a fill;
+- `textTone()` deepens gold used as text;
+- `rr()` applies the radius rule;
+- `drawIcon()` / `icon()` draw the line icons.
+
+The five zone colors come from the brand ramps: gold, blue, bronze, navy and steel.
+
 ### What's in the scene
-- Context architecture (light gray, adjustable X-ray opacity): walls, ceiling, floor, base and upper
+- Context architecture (brand cool gray, adjustable X-ray opacity): walls, ceiling, floor, base and upper
   cabinets, bookcase, shower wall with recessed niche, cove ledge, a closet behind the wall, and optional framing.
 - Five lighting zones, each color-coded:
 
@@ -38,12 +78,12 @@ browser (Chrome, Edge, Firefox, Safari). The only dependency is Three.js r128, l
   (clipping plane with filled cut faces), the cut position, and a close-up camera.
 - **Labels**: component callouts, dimensions, wire labels (gauge and length placeholders),
   room labels, and label size.
-- **Render**: background (white / light gray / dark / transparent) and soft shadows. Anti-aliasing is always on.
+- **Render**: background (white / light / navy / transparent) and soft shadows. Anti-aliasing is always on.
 - **Export** (panel footer):
   - **Export PNG** saves the view at 1×, 2× or 4×, with labels composited in. Use **Transparent
     background** for drop-on-any-slide images.
   - **Export all saved views** saves one PNG per saved slot.
-  - File names look like `your-brand_<view-name>_<YYYYMMDD-HHMMSS>_<scale>x.png`.
+  - File names look like `illumenate-lighting_<view-name>_<YYYYMMDD-HHMMSS>_<scale>x.png`.
   - **Hide UI for capture** (`H` / `Esc`) hides the panel and on-screen helpers.
 
 Mouse: drag to orbit · right-drag or Shift-drag to pan · wheel to zoom toward the cursor · double-click to re-center on a point.
@@ -183,7 +223,7 @@ out: tape W/ft, max run, reel length, tape width, channel stick length, clip spa
 
 ### Customizing
 Everything you're likely to edit is at the top of the `<script>` block:
-- `BRAND`, `ZONE_COLORS`, `COLORS`, `BACKGROUNDS`, `CCT_COLORS`: brand colors, fonts and name.
+- `DS` (design-system tokens), `BRAND`, `ZONE_COLORS`, `COLORS`, `BACKGROUNDS`, `CCT_COLORS`: colors, fonts, logo and name.
 - `UNITS` (imperial/metric) and `PROFILE_SCALE` (how much channel cross-sections are exaggerated).
 - `LAYERS`: every toggleable layer and its group. Architecture layers name their builder function.
 - `PROFILES`: channel profile dimensions (nominal mm, shown in labels).
