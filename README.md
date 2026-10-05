@@ -82,6 +82,50 @@ Switch the **View** mode to **Training visuals** to get slide-ready visuals for 
 - **Illustrative model:** the brightness-along-the-run curves are calibrated so a single-end feed at
   the max run drops `dropAtMaxPct`. Replace the figures with ilLumenate spec values.
 
+### Intermediate section 5 and the Advanced session
+The **Training visuals** dropdown is grouped by course and block.
+
+**Intermediate · 5 Scaling up**
+
+| Section | Visual |
+| --- | --- |
+| 5.1 | Supply placement plan: local vs. remote, wire gauge worked out for each distance, plus the rules of placement |
+| 5.2 | Dimming cheat sheet, flagged "Go deeper in Advanced" |
+| 5.3 | Recap in four lines |
+
+**Advanced · "Integration, profile matching, and control planning"**
+
+| Section | Visual |
+| --- | --- |
+| A1.1 | Animated leading- vs. trailing-edge waveforms, the failure-mode table, and a dimmer load window (min load, LED rating, inrush, neutral and ghosting) |
+| A1.2 | Animated CVR vs. PWM, a PWM-frequency-vs-camera filmstrip, and a tape type × dimming method matrix |
+| A1.3 | Integration paths (wall dimmer / processor / DMX-DALI), dim-to-warm vs. tunable white (CCT curve and comparison table), and a sample integration wiring template |
+| A2.1 | Mixing-distance section with simulated brightness ripple (pick the optics case), and a hotspot gallery |
+| A2.2 | Thermal comparison with the tape limit, plus max W/ft by profile |
+| A2.3 | Mud-in (5/8" drywall) and knife-edge sections, the profile selection matrix, and the mud-in install sequence |
+| A3.1 | Client scenes → zone schedule, with DMX addresses assigned automatically |
+| A3.2 | Protocol table and decision tree |
+| A3.3 | DMX address map, and daisy-chain / termination / splitter diagrams |
+| A3.4 | Multi-supply power topology ("never parallel outputs"), and a commissioning checklist handout |
+| A4 | "What to verify before you install" checklist and listing-details card |
+
+**Editing the content**
+
+Advanced numbers and tables live in **section 1c** of the code:
+
+| Values | Covers |
+| --- | --- |
+| `PLACEMENT`, `CONTROL_TYPES`, `RECAP` | Intermediate section 5 |
+| `DIMMER`, `FAILURE_MODES`, `PWM`, `TAPE_METHODS` | A1.1–A1.2 |
+| `DTW`, `DTW_TABLE` | A1.3 |
+| `DIFFUSERS`, `OPTICS_CASES` | A2.1 |
+| `THERMAL`, `PROFILE_MATRIX` | A2.2–A2.3 |
+| `ADV_ZONES`, `SCENES`, `DMX`, `PROTOCOLS` | A3 |
+| `COMMISSION_CHECKS`, `CODE_CHECKLIST`, `LISTING` | A3.4 and A4 |
+
+The main numeric placeholders can also be edited live in the panel. The hotspot and thermal figures
+are simulated or illustrative, so replace them with your measured values.
+
 ### Customizing
 Everything you're likely to edit is at the top of the `<script>` block:
 - `BRAND`, `ZONE_COLORS`, `COLORS`, `BACKGROUNDS`, `CCT_COLORS`: brand colors, fonts and name.
