@@ -126,6 +126,61 @@ Advanced numbers and tables live in **section 1c** of the code:
 The main numeric placeholders can also be edited live in the panel. The hotspot and thermal figures
 are simulated or illustrative, so replace them with your measured values.
 
+### Install guide (custom job walkthrough)
+The **Install guide · Custom cove** group in the Training visuals dropdown is a step-by-step install
+walkthrough for one job, written for an installer who is new to LED tape. It ships set up for a
+57″ × 119.5″ cove:
+- St. Helens SF channel (SH01) with LED-HD-SW 24 V tape.
+- Two strips, both fed from corner A:
+  - Strip 1 runs A → B → C: 57″, a jumper at B, then 119.5″.
+  - Strip 2 runs A → D → C: 119.5″, a jumper at D, then 57″.
+- Both strips end, capped, at corner C.
+
+| Section | Visual |
+| --- | --- |
+| Guide | Cover: the job, the plan and the ten steps |
+| Overview | Plan view built strip by strip, and the cove in 3D (layout, power and jumpers, finished) |
+| Parts | The channel, lens, snap clip, swivel bracket and tape drawn from the CAD files; parts list and tools |
+| Step 1 | Measure and check square, snap the channel line, and a clip-mark table for every side |
+| Step 2 | 3D clip install: marks, screws, snapping the channel in, the swivel-bracket option |
+| Step 3 | Channel cut list per side, how the cuts come out of each stick, cutting tips |
+| Step 4 | Cutting tape only on the marks, the four pieces (segments and lengths), labeling |
+| Step 5 | Four corner routes in 3D (gap + jumper, miter + inside jumper, miter + L connector, butt + notch), and what goes at each corner |
+| Step 6 | Making the jumpers: strip, solder + to +, heat-shrink, service loop |
+| Step 7 | Running power to corner A in 3D (from the attic, up through the wall, or a supply in the cove), and a wiring diagram |
+| Step 8 | Assembly in cross-section: clean, tape, test, lens, clips |
+| Step 9 | Meter checks before closing up |
+| Step 10 | Troubleshooting |
+| Done | The finished cove, lit |
+
+**Panel → Install guide · custom job**
+- **▶ Play guide** steps through every visual and build step. A caption bar shows the narration, and
+  3D steps get a slow camera move. **Pace** sets the speed. **Voice-over** reads the captions aloud
+  (live playback only). Press `Esc` to stop.
+- **● Record video** plays the whole guide into one video file: MP4, or WebM where the browser can't
+  record MP4. It records a 16:9 frame; hide the panel (`P`) first for a larger frame.
+- **Printable guide** renders every step and opens a self-contained page with images, numbered
+  instructions, the clip-mark table, the cut lists and the parts list. Print it, or save it as PDF.
+- **Copy job link** copies a URL with the job encoded (`#guide&job=…`). Opening that link goes
+  straight into the guide with those settings.
+- The job inputs (sides, cut interval, W/ft, clip spacing, corner route, feed route, supply location,
+  and so on) recalculate everything: tape pieces snapped to the cut marks, clip marks, the cut list,
+  the parts list, the supply size and the lead gauge.
+
+**Editing**: job values are in `JOB` (section 1d). The CAD geometry is in `CAD_SH01`, flattened from
+the supplied DWG: the channel, lens and clip outlines, plus the swivel-bracket views. It's used for
+the 2D drawings and is extruded for the 3D parts. Captions are the `say` lines in each guide entry
+(section 21).
+
+Values marked **[CAD]** come from the CAD files:
+- channel 0.673″ × 0.332″ with lens;
+- channel floor 0.48″ (12.2 mm);
+- tape cut interval 1.97″ (50 mm), with pads at both ends of each segment;
+- swivel-bracket holes Ø0.165″ at 1.01″ centers.
+
+Values marked **[confirm]** are placeholders to check against the spec sheets before the guide goes
+out: tape W/ft, max run, reel length, tape width, channel stick length, clip spacing and supply sizes.
+
 ### Customizing
 Everything you're likely to edit is at the top of the `<script>` block:
 - `BRAND`, `ZONE_COLORS`, `COLORS`, `BACKGROUNDS`, `CCT_COLORS`: brand colors, fonts and name.
