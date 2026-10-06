@@ -151,6 +151,7 @@
     color: var(--text-primary); min-width: 0; transition: border-color var(--ease), box-shadow var(--ease);
   }
   select:focus, input[type=text]:focus, input[type=number]:focus { outline: none; border-color: var(--secondary-600); box-shadow: 0 0 0 3px var(--secondary-100); }
+  input[aria-invalid=true] { border-color: #c0392b; box-shadow: 0 0 0 3px rgba(192,57,43,.15); }
   select { flex: 1 1 auto; cursor: pointer; }
   button:focus-visible, summary:focus-visible, input[type=range]:focus-visible, input[type=checkbox]:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--secondary-200); }
   .btn {
@@ -331,6 +332,7 @@ const ICON_PATHS = {
   video: 'M16 13l5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11M4 6h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z',
   layers: 'M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
   scissors: 'M9 6a3 3 0 1 1-6 0a3 3 0 1 1 6 0zM9 18a3 3 0 1 1-6 0a3 3 0 1 1 6 0zM8.12 8.12 12 12M20 4 8.12 15.88M14.8 14.8 20 20',
+  refresh: 'M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5',
 };
 const icon = (name, size = 16) => `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICON_PATHS[name]}"/></svg>`;
 const _iconPath2D = {};
@@ -349,11 +351,11 @@ const COLORS = {
   archAlt:     mixHex(DS.primary[100], DS.primary[200], 0.2),   // tile / accent surfaces
   floor:       mixHex(DS.primary[100], DS.primary[200], 0.3),
   archEdge:    DS.primary[200],                          // architectural outline lines
-  aluminum:    '#cfd4da',  // physical: anodized aluminum
-  clip:        '#8f979f',  // physical: steel clip
-  endCap:      DS.primary[100],
+  aluminum:    '#8b929a',  // physical: anodized aluminum (grey)
+  clip:        '#6f777f',  // physical: steel clip
+  endCap:      '#5b626a',  // physical: grey end cap
   gasket:      '#3a4048',  // physical: rubber gasket
-  diffuser:    '#f7f8fa',  // physical: frosted lens
+  diffuser:    '#ffffff',  // physical: frosted lens (white)
   pcb:         '#f3eee2',  // physical: tape PCB
   chip:        '#f2d470',  // physical: LED phosphor when unlit
   connector:   '#eef1f4',
@@ -612,7 +614,7 @@ const EXAMPLE = {
   supplyDistFt: 15,       // supply distance from the start of the run
   // 3.1 load & supply size
   derate: 0.8,            // 80% rule
-  supplySizes: [36, 60, 96, 150, 200, 300],   // standard supply sizes (W)
+  supplySizes: [30, 60, 100, 200, 300],   // standard supply sizes (W)
   // 3.2 / 3.3 max run & feed methods
   maxRunFt: 16,           // [spec] max run, single-end feed
   dropAtMaxPct: 10,       // tape voltage drop at the max run (model calibration)
@@ -838,7 +840,7 @@ const JOB = {
   splitAt: 'corner',                  // 'corner' (one lead, split at A) | 'supply' (one lead per strip)
   dropLimitPct: 3,                    // max voltage drop on the supply lead
   derate: 0.8,                        // load ÷ 0.8 rule
-  supplySizes: [60, 96, 150, 200, 288],  // [confirm] available 24 V Class 2 supplies (W)
+  supplySizes: [30, 60, 100, 200, 300],  // [confirm] available 24 V Class 2 supplies (W)
 };
 
 /* [CAD] SH01 St. Helens SF, flattened from the DWG. Units: 1/1000 in.
@@ -986,9 +988,9 @@ function updateCameraAspect(aspect) {
 }
 
 // Soft, presentation-style lighting
-const hemi = new THREE.HemisphereLight(0xffffff, 0xcfd3d9, 0.5);
+const hemi = new THREE.HemisphereLight(0xffffff, 0xb4bac2, 0.4);
 scene.add(hemi);
-const keyLight = new THREE.DirectionalLight(0xffffff, 0.5);
+const keyLight = new THREE.DirectionalLight(0xffffff, 0.45);
 keyLight.position.set(8.5, 11, 10);
 keyLight.target.position.set(2.6, 0.8, 0.8);
 keyLight.castShadow = true;
@@ -998,10 +1000,10 @@ keyLight.shadow.bias = -0.0004;
 keyLight.shadow.normalBias = 0.012;
 keyLight.shadow.radius = 4;
 scene.add(keyLight, keyLight.target);
-const fillLight = new THREE.DirectionalLight(0xffffff, 0.16);
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.12);
 fillLight.position.set(-5, 6, 9);
 scene.add(fillLight);
-scene.add(new THREE.AmbientLight(0xffffff, 0.1));
+scene.add(new THREE.AmbientLight(0xffffff, 0.06));
 
 /** Procedural studio environment for metal reflections (no external HDRI). */
 function buildEnvironment() {
@@ -1123,11 +1125,11 @@ class OrbitRig {
    ===================================================================== */
 const BRUSHED = brushedTexture();
 const MAT = {
-  aluminum:  new THREE.MeshStandardMaterial({ color: COLORS.aluminum, metalness: 0.82, roughness: 0.34, map: BRUSHED, envMap: ENV_MAP, envMapIntensity: 1.0, side: THREE.DoubleSide }),
+  aluminum:  new THREE.MeshStandardMaterial({ color: COLORS.aluminum, metalness: 0.6, roughness: 0.4, map: BRUSHED, envMap: ENV_MAP, envMapIntensity: 0.7, side: THREE.DoubleSide }),
   clip:      new THREE.MeshStandardMaterial({ color: COLORS.clip, metalness: 0.75, roughness: 0.38, envMap: ENV_MAP, side: THREE.DoubleSide }),
   cap:       new THREE.MeshStandardMaterial({ color: COLORS.endCap, metalness: 0.0, roughness: 0.55 }),
   gasket:    new THREE.MeshStandardMaterial({ color: COLORS.gasket, metalness: 0.0, roughness: 0.7 }),
-  diffuser:  new THREE.MeshStandardMaterial({ color: COLORS.diffuser, metalness: 0.0, roughness: 0.55, transparent: true, opacity: 0.8, emissive: 0x000000 }),
+  diffuser:  new THREE.MeshStandardMaterial({ color: COLORS.diffuser, metalness: 0.0, roughness: 0.55, transparent: true, opacity: 0.92, emissive: 0x000000 }),
   pcb:       new THREE.MeshStandardMaterial({ color: COLORS.pcb, metalness: 0.0, roughness: 0.6, emissive: 0x000000, side: THREE.DoubleSide }),
   chip:      new THREE.MeshStandardMaterial({ color: COLORS.chip, metalness: 0.0, roughness: 0.35, emissive: 0x000000 }),
   connector: new THREE.MeshStandardMaterial({ color: COLORS.connector, metalness: 0.0, roughness: 0.3, transparent: true, opacity: 0.92 }),
@@ -3543,10 +3545,10 @@ function drawMistakes(ctx, step) {
 const trainScene = new THREE.Scene();
 const emptyScene = new THREE.Scene();
 (() => {
-  trainScene.add(new THREE.HemisphereLight(0xffffff, 0xcfd3d9, 0.55));
-  const k = new THREE.DirectionalLight(0xffffff, 0.55); k.position.set(4, 9, 7); trainScene.add(k);
-  const f = new THREE.DirectionalLight(0xffffff, 0.2); f.position.set(-5, 4, 6); trainScene.add(f);
-  trainScene.add(new THREE.AmbientLight(0xffffff, 0.12));
+  trainScene.add(new THREE.HemisphereLight(0xffffff, 0xb4bac2, 0.38));
+  const k = new THREE.DirectionalLight(0xffffff, 0.5); k.position.set(4, 9, 7); trainScene.add(k);
+  const f = new THREE.DirectionalLight(0xffffff, 0.14); f.position.set(-5, 4, 6); trainScene.add(f);
+  trainScene.add(new THREE.AmbientLight(0xffffff, 0.06));
 })();
 const trainRoot = new THREE.Group(); trainScene.add(trainRoot);
 
@@ -3555,7 +3557,7 @@ function tMats() {
   const chip = MAT.chip.clone(); chip.emissive.copy(cct).lerp(new THREE.Color('#ffb347'), 0.35); chip.emissiveIntensity = 0.75 * I;
   const pcb = MAT.pcb.clone(); pcb.color.set('#e9e2cf'); pcb.emissive.copy(cct); pcb.emissiveIntensity = 0.05 * I;
   return {
-    alu: MAT.aluminum.clone(), alu2: Object.assign(MAT.aluminum.clone(), { color: new THREE.Color('#b8c0c9') }), cap: MAT.cap.clone(), pcb, chip,
+    alu: MAT.aluminum.clone(), alu2: Object.assign(MAT.aluminum.clone(), { color: new THREE.Color('#737b84') }), cap: MAT.cap.clone(), pcb, chip,
     conn: MAT.connector.clone(), contact: MAT.contact.clone(),
     copper: new THREE.MeshStandardMaterial({ color: '#c98a3e', metalness: 0.7, roughness: 0.35, envMap: ENV_MAP }),
     arch: new THREE.MeshStandardMaterial({ color: COLORS.arch, roughness: 0.92 }),
@@ -4005,7 +4007,7 @@ function table(ctx, x, y, w, cols, rows, o = {}) {
     line(ctx, [[x + 10, ry], [x + w - 10, ry]], { color: P.line, width: 1 });
     if (shown && o.reveal != null && o.highlightLast !== false && i === o.reveal - 1 && o.reveal < rows.length + 1) {
       ctx.fillStyle = hexA(BRAND.primary, 0.06); ctx.fillRect(x + 2, ry + 1, w - 4, rh[i] - 2);
-      ctx.fillStyle = BRAND.primary; ctx.fillRect(x + 3, ry + 8, 4, rh[i] - 16);
+      if (o.bar !== false) { ctx.fillStyle = BRAND.primary; ctx.fillRect(x + 3, ry + 8, 4, rh[i] - 16); }
     }
     r.forEach((c0, j) => {
       const c = cell(c0), cx = xs[j] + px, cy = ry + py;
@@ -4966,28 +4968,38 @@ function tagAt(ctx, x, y, tx, ty, s, o = {}) {
   ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fillStyle = o.color || P.muted; ctx.fill();
   pill(ctx, s, tx, ty, { bg: P.card, stroke: o.color || P.cardLine, size: o.size || 14, align: o.align || (tx < x ? 'right' : 'left'), color: o.textColor || P.ink });
 }
-/** Card with a colored bar, a title and key/value rows. Returns its height. */
+/** Guide slide grid (1600 × 900): 60 px margins, 24 px gutters and padding, content between y 160 and 820. */
+const GL = { l: 60, r: 1540, w: 1480, t: 160, b: 820, gap: 24, pad: 24 };
+/** Card title with a hairline under it (o.color adds a small dot). Returns the y where the card's content starts. */
+function cardHead(ctx, x, y, w, title, o = {}) {
+  let tx = x + GL.pad;
+  if (o.color) { ctx.beginPath(); ctx.arc(tx + 6, y + 30, 6, 0, Math.PI * 2); ctx.fillStyle = o.color; ctx.fill(); tx += 20; }
+  txt(ctx, title, tx, y + 36, { size: 19, weight: 700, maxW: x + w - GL.pad - tx });
+  line(ctx, [[x + GL.pad, y + 52], [x + w - GL.pad, y + 52]], { color: P.line, width: 1 });
+  return y + 60;
+}
+/** Card with a title and key/value rows. Returns its height. */
 function infoCard(ctx, x, y, w, title, rows, o = {}) {
-  const lh = o.lh || 30, h = 58 + rows.length * lh + 6;
+  const lh = o.lh || 28, h = Math.max(o.h || 0, 60 + rows.length * lh + 12);
   card(ctx, x, y, w, h);
-  if (o.color) { ctx.save(); roundRect(ctx, x, y, w, h, 14); ctx.clip(); ctx.fillStyle = o.color; ctx.fillRect(x, y, 7, h); ctx.restore(); }
-  txt(ctx, title, x + 24, y + 38, { size: 21, weight: 700, maxW: w - 40 });
+  const top = cardHead(ctx, x, y, w, title, o);
   rows.forEach(([k, v], i) => {
-    const yy = y + 72 + i * lh;
-    txt(ctx, k, x + 24, yy, { size: 16, color: P.muted, maxW: w * 0.42 });
-    txt(ctx, v, x + w - 20, yy, { size: 16, weight: 600, align: 'right', maxW: w * 0.56 });
+    const yy = top + i * lh + lh * 0.68;
+    txt(ctx, k, x + GL.pad, yy, { size: 16, color: P.muted, maxW: w * 0.42 });
+    txt(ctx, v, x + w - GL.pad, yy, { size: 16, weight: 600, align: 'right', maxW: w * 0.56 });
   });
   return h;
 }
+function noteH(ctx, w, lines, size = 17) {
+  ctx.font = cssFont(400, size);
+  const n = lines.reduce((a, l) => a + splitLines(ctx, l, w - GL.pad * 2 - 20).length, 0);
+  return Math.ceil(60 + size * 0.95 + (n - 1) * size * 1.35 + (lines.length - 1) * 10 + 28);
+}
 function noteCard(ctx, x, y, w, title, lines, o = {}) {
-  ctx.font = cssFont(400, o.size || 17);
-  const est = lines.reduce((a, l) => a + splitLines(ctx, l, w - 64).length * (o.size || 17) * 1.35 + 8, 0);
-  const h = o.h || (66 + est);
+  const size = o.size || 17, h = Math.max(o.h || 0, noteH(ctx, w, lines, size));
   card(ctx, x, y, w, h);
-  if (o.color) { ctx.save(); roundRect(ctx, x, y, w, h, 14); ctx.clip(); ctx.fillStyle = o.color; ctx.fillRect(x, y, 7, h); ctx.restore(); }
-  txt(ctx, title, x + 24, y + 38, { size: 20, weight: 700, maxW: w - 40, color: o.titleColor || P.ink });
-  let yy = y + 72;
-  lines.forEach((l) => { yy += bullet(ctx, x + 22, yy, l, w - 44, { size: o.size || 17, dot: o.color || P.brand }) + 8; });
+  let yy = cardHead(ctx, x, y, w, title, o) + size * 0.95;
+  lines.forEach((l) => { yy += bullet(ctx, x + GL.pad, yy, l, w - GL.pad * 2, { size }) + 10; });
   return h;
 }
 
@@ -5034,60 +5046,63 @@ function drawPlan(ctx, m, o = {}) {
 
 /* ---------- 2D visuals ---------- */
 function drawGuideCover(ctx) {
-  const J = JOB, C = jobCalc();
-  infoCard(ctx, 60, 170, 640, 'This job', [
+  const J = JOB, C = jobCalc(), L = GL, colW = 716, rx = L.l + colW + L.gap, rw = L.r - rx;
+  const ih = infoCard(ctx, L.l, L.t, colW, 'This job', [
     ['Client', J.client], ['Cove', `${frac(J.shortIn)} × ${frac(J.longIn)} (perimeter ${fmt((2 * J.shortIn + 2 * J.longIn) / 12, 1)} ft)`],
     ['Channel', `${J.profile} (${J.profileSku}) + frosted lens`], ['Tape', `${J.tape}, ${J.volts} V, cut every ${ivTxt()}`],
     ['Strips', `2 × ${fmt(C.strips[0].ft, 1)} ft, both fed from corner A`], ['Mounting', J.clipType === 'swivel' ? `${C.clips} swivel brackets` : `${C.clips} snap-in clips`],
     ['Corners', ROUTES[J.cornerRoute].name], ['Power', `${C.supply ?? '—'} W supply, ${J.supplyWhere}`],
   ], { lh: 34 });
-  const m = planMap(790, 190, 740, 250);
+  card(ctx, rx, L.t, rw, ih);
+  const m = planMap(rx + 60, L.t + 54, rw - 120, ih - 108);
   drawPlan(ctx, m, { calc: C, roomLabel: false, feed: false });
-  const steps = GUIDE_STEPS();
-  card(ctx, 790, 500, 750, 340);
-  txt(ctx, 'The steps', 814, 538, { size: 21, weight: 700 });
-  steps.forEach((s, i) => { const col = i < 6 ? 0 : 1, row = i % 6, x = 816 + col * 368, y = 580 + row * 42; badge(ctx, String(i + 1), x + 12, y - 6, 14); txt(ctx, s, x + 36, y, { size: 17, maxW: 320 }); });
-  txt(ctx, `Prepared ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, 60, 830, { size: 16, color: P.muted });
+  const steps = GUIDE_STEPS(), sy = L.t + ih + L.gap, colw = (L.w - L.pad * 2) / 5;
+  card(ctx, L.l, sy, L.w, 60 + 2 * 46 + 12);
+  const top = cardHead(ctx, L.l, sy, L.w, 'The steps');
+  steps.forEach((s, i) => { const x = L.l + L.pad + (i % 5) * colw, cy = top + Math.floor(i / 5) * 46 + 20; badge(ctx, String(i + 1), x + 14, cy, 14); txt(ctx, s, x + 38, cy + 6, { size: 17, maxW: colw - 50 }); });
+  txt(ctx, `Prepared ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, L.l, sy + 60 + 2 * 46 + 12 + 36, { size: 16, color: P.muted });
 }
 const GUIDE_STEPS = () => ['Lay out and mark', 'Install the clips', 'Cut the channel and lens', 'Cut the tape', 'Plan the corners', 'Make the jumpers', 'Run power to corner A', 'Assemble: tape, lens, clips', 'Test before you close up', 'Troubleshooting'];
 
 function drawGlance(ctx, step) {
-  const J = JOB, C = jobCalc(), m = planMap(110, 190, 820, 470);
+  const J = JOB, C = jobCalc(), L = GL, pw = 940, x = L.l + pw + L.gap, w = L.r - x;
+  card(ctx, L.l, L.t, pw, L.b - L.t);
+  const m = planMap(L.l + 100, L.t + 90, pw - 220, L.b - L.t - 180);
   drawPlan(ctx, m, { calc: C, strips: [step >= 2, step >= 3], feed: step >= 4, pieceLabels: step >= 2, jumpers: true });
   dimH(ctx, m.B[0], m.C[0], m.B[1] - 62, frac(J.longIn));
   dimV(ctx, m.C[0] + 64, m.C[1], m.D[1], frac(J.shortIn));
-  const x = 1060, w = 480;
-  let y = 180;
-  y += infoCard(ctx, x, y, w, 'The cove', [['Short sides (A–B, D–C)', frac(J.shortIn)], ['Long sides (A–D, B–C)', frac(J.longIn)], ['Power comes in at', 'Corner A']], { color: BRAND.accent }) + 16;
-  const sCard = (st, a, b) => infoCard(ctx, x, y, w, `${st.name}: ${a}`, [[`${st.pieces[0].id} · ${st.pieces[0].side.id[0]}→${st.pieces[0].side.id[1]}`, `${frac(st.pieces[0].side.len)} side`], [`${st.pieces[1].id} · ${st.pieces[1].side.id[0]}→${st.pieces[1].side.id[1]}`, `${frac(st.pieces[1].side.len)} side`], ['Lit tape', `${fmt(st.ft, 1)} ft · jumper at ${st.corner}`]], { color: st.color }) + 16;
+  let y = L.t;
+  y += infoCard(ctx, x, y, w, 'The cove', [['Short sides (A–B, D–C)', frac(J.shortIn)], ['Long sides (A–D, B–C)', frac(J.longIn)], ['Power comes in at', 'Corner A']], { lh: 26 }) + L.gap;
+  const sCard = (st, a, b) => infoCard(ctx, x, y, w, `${st.name}: ${a}`, [[`${st.pieces[0].id} · ${st.pieces[0].side.id[0]}→${st.pieces[0].side.id[1]}`, `${frac(st.pieces[0].side.len)} side`], [`${st.pieces[1].id} · ${st.pieces[1].side.id[0]}→${st.pieces[1].side.id[1]}`, `${frac(st.pieces[1].side.len)} side`], ['Lit tape', `${fmt(st.ft, 1)} ft · jumper at ${st.corner}`]], { color: st.color, lh: 26 }) + L.gap;
   if (step >= 2) y += sCard(C.strips[0], 'A → B → C');
   if (step >= 3) y += sCard(C.strips[1], 'A → D → C');
-  if (step >= 4) infoCard(ctx, x, y, w, 'Power', [['Total load', `${fmt(C.W, 0)} W (${fmt(C.tapeIn / 12, 1)} ft × ${J.wPerFt} W/ft)`], ['Supply', `${C.supply ?? '—'} W, ${J.volts} V Class 2`]], { color: P.ink });
-  if (step >= 3) txt(ctx, 'Both strips end at corner C. They are capped there, not connected.', 110, 830, { size: 17, color: P.muted });
+  if (step >= 4) infoCard(ctx, x, y, w, 'Power', [['Total load', `${fmt(C.W, 0)} W (${fmt(C.tapeIn / 12, 1)} ft × ${J.wPerFt} W/ft)`], ['Supply', `${C.supply ?? '—'} W, ${J.volts} V Class 2`]], { lh: 26 });
+  if (step >= 3) txt(ctx, 'Both strips end at corner C. They are capped there, not connected.', L.l + L.pad, L.b - 28, { size: 17, color: P.muted });
 }
 
 function drawCadParts(ctx, step) {
-  const J = JOB, cols = [60, 568, 1076], cw = 464, top = 170, ch = 660;
+  const J = JOB, L = GL, cw = (L.w - 2 * L.gap) / 3, cols = [0, 1, 2].map((i) => L.l + i * (cw + L.gap)), top = L.t, ch = L.b - L.t;
   cols.forEach((x, i) => { if (step > i) card(ctx, x, top, cw, ch); else ghost(ctx, x, top, cw, ch); });
+  const head = (x, title, sub) => { cardHead(ctx, x, top, cw, title); txt(ctx, sub, x + L.pad, top + 76, { size: 14, color: P.muted, maxW: cw - L.pad * 2 }); };
   // 1 · channel + lens
   if (step >= 1) {
-    const x = cols[0], s = 560, ox = x + cw / 2, oy = top + 420;
-    txt(ctx, `${J.profile} channel + lens`, x + 24, top + 40, { size: 21, weight: 700 }); txt(ctx, `${J.profileSku} · [CAD] cross-section, full scale × ${fmt(s / 96, 1)}`, x + 24, top + 66, { size: 14, color: P.muted });
+    const x = cols[0], s = 470, ox = x + cw / 2, oy = top + 410;
+    head(x, `${J.profile} channel + lens`, `${J.profileSku} · [CAD] cross-section, full scale × ${fmt(s / 96, 1)}`);
     drawXsec(ctx, ox, oy, s, { lens: true, tape: true });
     dimH(ctx, ox - CAD_W / 2 * s, ox + CAD_W / 2 * s, oy + 52, '0.673″ (17.1 mm)', { size: 15 });
-    dimV(ctx, ox + CAD_W / 2 * s + 42, oy - CAD_H * s, oy, '0.332″', { size: 14 });
-    tagAt(ctx, ox + 0.15 * s, oy - 0.31 * s, ox + 0.1 * s, top + 120, 'Frosted lens snaps in', { align: 'center' });
-    tagAt(ctx, ox - 0.3 * s, oy - 0.1 * s, x + 30, oy - 0.42 * s, 'Aluminum channel', { align: 'left' });
-    tagAt(ctx, ox - 0.12 * s, oy - 0.05 * s, x + 30, oy + 112, `Tape on the floor (${fmt(CAD_FLOOR, 2)}″ = 12.2 mm)`, { align: 'left' });
-    wrap(ctx, `Tape up to 12 mm wide fits. ${J.tape} is ${J.tapeWmm} mm [confirm].`, x + 24, top + ch - 44, cw - 48, { size: 16, color: P.muted });
+    dimV(ctx, ox + CAD_W / 2 * s + 32, oy - CAD_H * s, oy, '0.332″', { size: 14 });
+    tagAt(ctx, ox + 0.15 * s, oy - 0.31 * s, ox + 0.1 * s, top + 140, 'Frosted lens snaps in', { align: 'center' });
+    tagAt(ctx, ox - 0.3 * s, oy - 0.1 * s, x + L.pad, oy - 0.42 * s, 'Aluminum channel', { align: 'left' });
+    tagAt(ctx, ox - 0.12 * s, oy - 0.05 * s, x + L.pad, oy + 112, `Tape on the floor (${fmt(CAD_FLOOR, 2)}″ = 12.2 mm)`, { align: 'left' });
+    wrap(ctx, `Tape up to 12 mm wide fits. ${J.tape} is ${J.tapeWmm} mm [confirm].`, x + L.pad, top + ch - 52, cw - L.pad * 2, { size: 16, color: P.muted });
   }
   // 2 · clip + swivel bracket
   if (step >= 2) {
     const x = cols[1], s = 300, ox = x + 125, oy = top + 290;
-    txt(ctx, 'Mounting hardware', x + 24, top + 40, { size: 21, weight: 700 }); txt(ctx, '[CAD] snap clip and swivel bracket', x + 24, top + 66, { size: 14, color: P.muted });
+    head(x, 'Mounting hardware', '[CAD] snap clip and swivel bracket');
     drawXsec(ctx, ox, oy, s, { clip: true, lens: true });
     txt(ctx, 'Snap clip', ox, oy + 50, { size: 16, weight: 700, align: 'center' });
-    wrap(ctx, 'Screw it down, then press the channel in until it clicks.', x + 24, oy + 76, 200, { size: 14, color: P.muted });
+    wrap(ctx, 'Screw it down, then press the channel in until it clicks.', x + L.pad, oy + 76, 200, { size: 14, color: P.muted });
     const bs = 140, bx = x + 340, by = top + 255;
     CAD_SH01.swivelFront.p.forEach((a) => cadStroke(ctx, a, bx, by, bs, { stroke: '#59616b', lw: 1.1 }));
     txt(ctx, 'Swivel bracket', bx, by + 40, { size: 16, weight: 700, align: 'center' });
@@ -5096,58 +5111,63 @@ function drawCadParts(ctx, step) {
     CAD_SH01.swivelPlan.p.forEach((a) => cadStroke(ctx, a, px, py, ps, { stroke: '#59616b', lw: 1.1 }));
     dimH(ctx, px - 0.506 * ps, px + 0.506 * ps, py + 26, '1.01″ centers', { size: 13 });
     txt(ctx, 'top view · Ø0.165″ holes (#6)', px, py + 58, { size: 13, color: P.muted, align: 'center' });
-    wrap(ctx, 'Swivel bracket: loosen the pivot nut to tilt the light toward the wall, then tighten.', x + 24, top + ch - 44, cw - 48, { size: 15, color: P.muted });
+    wrap(ctx, 'Swivel bracket: loosen the pivot nut to tilt the light toward the wall, then tighten.', x + L.pad, top + ch - 52, cw - L.pad * 2, { size: 15, color: P.muted });
   }
   // 3 · tape segment
   if (step >= 3) {
-    const x = cols[2], sw = 140, tx = x + 22, ty = top + 230, th = 72;
-    txt(ctx, `${J.tape} tape`, x + 24, top + 40, { size: 21, weight: 700 }); txt(ctx, `[CAD] ${J.volts} V DC, pads at both ends of every segment`, x + 24, top + 66, { size: 14, color: P.muted });
+    const x = cols[2], sw = 135, tx = x + (cw - sw * 3) / 2, ty = top + 200, th = 72;
+    head(x, `${J.tape} tape`, `[CAD] ${J.volts} V DC, pads at both ends of every segment`);
     drawTapeRun(ctx, tx, ty, sw * 3, th, 3, { signs: true });
     ctx.fillStyle = hexA(BRAND.primary, 0.08); ctx.fillRect(tx + sw, ty - 10, sw, th + 20);
     dimH(ctx, tx + sw, tx + 2 * sw, ty + th + 40, `${ivTxt()} (50 mm)`, { size: 14 });
     pill(ctx, 'Cut only on this line', tx + 2 * sw, ty - 34, { bg: P.ink, color: P.card, size: 14, align: 'center', icon: 'scissors' });
     line(ctx, [[tx + 2 * sw, ty - 22], [tx + 2 * sw, ty - 6]], { color: P.ink, width: 2 });
-    let y = ty + th + 100;
-    [`+${J.volts} V pads run along one edge, − pads along the other.`, 'Cut through the middle of the copper pads so both pieces keep half a pad to solder to.', 'Cutting between lines kills that segment.'].forEach((t) => { y += bullet(ctx, x + 22, y, t, cw - 44, { size: 16 }) + 12; });
+    let y = ty + th + 110;
+    [`+${J.volts} V pads run along one edge, − pads along the other.`, 'Cut through the middle of the copper pads so both pieces keep half a pad to solder to.', 'Cutting between lines kills that segment.'].forEach((t) => { y += bullet(ctx, x + L.pad, y, t, cw - L.pad * 2, { size: 16 }) + 12; });
   }
 }
 
 function drawPartsTools(ctx, step) {
-  const C = jobCalc(), rows = partsList(C).map(([a, b, c]) => [{ t: a, bold: true }, String(b), { t: c, color: P.muted }]);
-  table(ctx, 60, 160, step >= 2 ? 960 : 1480, [{ h: 'Part', w: 3.1 }, { h: 'Qty', w: 1.3 }, { h: 'Notes', w: 4 }], rows, { size: step >= 2 ? 15 : 16, padY: 7, headSize: 13 });
+  const L = GL, C = jobCalc(), rows = partsList(C).map(([a, b, c]) => [{ t: a, bold: true }, String(b), { t: c, color: P.muted }]);
+  const tw = 956, cx = L.l + tw + L.gap, cw = L.r - cx;
+  // tools card: measure first so the parts table can stretch to the same height
+  const adv = TOOLS.map(([t, why]) => { ctx.font = cssFont(600, 16); return splitLines(ctx, t, cw - L.pad * 2 - 20).length * 21.6 + (why ? 18 : 0) + 8; });
+  const toolsH = Math.ceil(60 + 16 + adv.reduce((a, b) => a + b, 0) - adv[adv.length - 1] + 30);
+  table(ctx, L.l, L.t, step >= 2 ? tw : L.w, [{ h: 'Part', w: 3.1 }, { h: 'Qty', w: 1.3 }, { h: 'Notes', w: 4 }], rows, { size: step >= 2 ? 15 : 16, padY: 7, padX: 24, headSize: 13, minRow: step >= 2 ? (toolsH - 31) / rows.length : 0 });
   if (step >= 2) {
-    card(ctx, 1050, 160, 490, 690);
-    txt(ctx, 'Tools', 1074, 200, { size: 21, weight: 700 });
-    let y = 244;
-    TOOLS.forEach(([t, why]) => { const h = bullet(ctx, 1072, y, t, 450, { size: 16, weight: 600 }); y += h; if (why) { txt(ctx, why, 1092, y - 4, { size: 14, color: P.muted }); y += 18; } y += 8; });
+    card(ctx, cx, L.t, cw, toolsH);
+    let y = cardHead(ctx, cx, L.t, cw, 'Tools') + 16;
+    TOOLS.forEach(([t, why]) => { const h = bullet(ctx, cx + L.pad, y, t, cw - L.pad * 2, { size: 16, weight: 600 }); y += h; if (why) { txt(ctx, why, cx + L.pad + 20, y - 4, { size: 14, color: P.muted }); y += 18; } y += 8; });
   }
 }
 
 function drawLayout(ctx, step) {
-  const J = JOB, C = jobCalc(), m = planMap(130, step >= 3 ? 190 : 200, 840, step >= 3 ? 245 : 480);
+  const J = JOB, C = jobCalc(), L = GL, pw = 940, rx = L.l + pw + L.gap, rw = L.r - rx, ph = step >= 3 ? 400 : L.b - L.t;
+  card(ctx, L.l, L.t, pw, ph);
+  const m = planMap(L.l + 100, L.t + 80, pw - 200, ph - 160);
   drawPlan(ctx, m, { calc: C, strips: [false, false], jumpers: false, caps: false, thin: step >= 3, roomLabel: step === 2 });
   dimH(ctx, m.B[0], m.C[0], m.B[1] - 50, frac(J.longIn), { size: 15 }); dimH(ctx, m.A[0], m.D[0], m.A[1] + 50, frac(J.longIn), { size: 15 });
   dimV(ctx, m.A[0] - 70, m.B[1], m.A[1], frac(J.shortIn), { size: 15 }); dimV(ctx, m.D[0] + 70, m.C[1], m.D[1], frac(J.shortIn), { size: 15 });
   if (step === 1) {
     line(ctx, [m.A, m.C], { color: P.brand, width: 2, dash: [10, 8] }); line(ctx, [m.B, m.D], { color: P.brand, width: 2, dash: [10, 8] });
     pill(ctx, `Diagonals: ${frac(C.diag)} each`, (m.A[0] + m.C[0]) / 2, (m.A[1] + m.C[1]) / 2 + 40, { bg: P.brand, color: '#fff', size: 15, align: 'center' });
-    noteCard(ctx, 1060, 190, 480, 'Measure and check square', [`Measure each side along the ledge: ${frac(J.shortIn)} and ${frac(J.longIn)}.`, `Measure both diagonals. They should both be about ${frac(C.diag)}.`, 'If a diagonal is off by more than 1/4″, the cove is out of square. Cut each side to its own measurement.'], { color: BRAND.accent });
+    noteCard(ctx, rx, L.t, rw, 'Measure and check square', [`Measure each side along the ledge: ${frac(J.shortIn)} and ${frac(J.longIn)}.`, `Measure both diagonals. They should both be about ${frac(C.diag)}.`, 'If a diagonal is off by more than 1/4″, the cove is out of square. Cut each side to its own measurement.'], {});
   }
   if (step === 2) {
-    const x = 1060, y = 190, w = 480, h = 560; card(ctx, x, y, w, h);
-    txt(ctx, 'Snap the channel line', x + 24, y + 40, { size: 21, weight: 700 });
+    const x = rx, y = L.t, w = rw, h = ph; card(ctx, x, y, w, h);
+    cardHead(ctx, x, y, w, 'Snap the channel line');
     // section through the ledge: wall left, lip right, channel on the line
-    const s = 46, ly = y + 400, wallX = x + 70, lipX = x + 330;
+    const s = 46, ly = y + 400, wallX = x + 130, lipX = x + 390;
     ctx.fillStyle = P.soft; ctx.fillRect(wallX, ly, lipX + 26 - wallX, 34); ctx.strokeStyle = P.channel; ctx.lineWidth = 1.5; ctx.strokeRect(wallX, ly, lipX + 26 - wallX, 34);
-    ctx.fillStyle = P.soft; ctx.fillRect(wallX - 26, y + 90, 26, ly + 34 - y - 90); ctx.strokeRect(wallX - 26, y + 90, 26, ly + 34 - y - 90);
+    ctx.fillStyle = P.soft; ctx.fillRect(wallX - 26, y + 100, 26, ly + 34 - y - 100); ctx.strokeRect(wallX - 26, y + 100, 26, ly + 34 - y - 100);
     ctx.fillStyle = P.soft; ctx.fillRect(lipX, ly - 3 * s * 0.8, 26, 3 * s * 0.8); ctx.strokeRect(lipX, ly - 3 * s * 0.8, 26, 3 * s * 0.8);
     const cx = lipX - J.lineSetbackIn * s * 2.2;
     drawXsec(ctx, cx, ly, s * 2.2, { lens: true, clip: true });
     line(ctx, [[cx, ly + 4], [cx, ly + 30]], { color: BRAND.primary, width: 2, dash: [4, 3] });
     dimH(ctx, cx, lipX, ly + 52, `${frac(J.lineSetbackIn)} to the lip`, { size: 14 });
-    txt(ctx, 'Wall', wallX - 13, y + 80, { size: 14, color: P.muted, align: 'center' }); txt(ctx, 'Lip', lipX + 13, ly - 3 * s * 0.8 - 10, { size: 14, color: P.muted, align: 'center' });
+    txt(ctx, 'Wall', wallX - 13, y + 90, { size: 14, color: P.muted, align: 'center' }); txt(ctx, 'Lip', lipX + 13, ly - 3 * s * 0.8 - 10, { size: 14, color: P.muted, align: 'center' });
     arrow(ctx, [[cx, ly - 40], [cx - 60, ly - 170]], hexA(CCT_COLORS[state.cct], 0.9), { width: 4 }); txt(ctx, 'Light washes the wall', cx - 60, ly - 182, { size: 14, color: P.muted, align: 'center' });
-    wrap(ctx, 'Keep the channel low enough that the lip hides it from the room. Draw the line on all four sides.', x + 24, y + h - 52, w - 48, { size: 15, color: P.muted });
+    wrap(ctx, 'Keep the channel low enough that the lip hides it from the room. Draw the line on all four sides.', x + L.pad, y + h - 64, w - L.pad * 2, { size: 15, color: P.muted });
   }
   if (step >= 3) {
     C.chan.forEach((c) => {
@@ -5155,8 +5175,8 @@ function drawLayout(ctx, step) {
       c.marks.forEach((mk) => { const t = mk / L, px = P0[0] + (P1[0] - P0[0]) * t, py = P0[1] + (P1[1] - P0[1]) * t, vert = P0[0] === P1[0]; line(ctx, vert ? [[px - 9, py], [px + 9, py]] : [[px, py - 9], [px, py + 9]], { color: BRAND.primary, width: 2.5 }); });
     });
     const rows = C.chan.map((c) => [{ t: `${c.id[0]} → ${c.id[1]}`, bold: true }, `${c.marks.length}`, { t: c.marks.map((x) => frac(x)).join(' · '), size: 14 }]);
-    table(ctx, 60, 540, 1480, [{ h: 'Side (measure from)', w: 1.1 }, { h: 'Clips', w: 0.5 }, { h: 'Clip marks, measured from the first corner', w: 7 }], rows, { size: 16, padY: 8, headSize: 13 });
-    noteCard(ctx, 1060, 176, 480, 'Clip marks', [`First clip ${frac(J.clipEndIn)} from each end of every piece of channel, then evenly spaced, never more than ${frac(J.clipSpacingIn)} apart.`, C.joins ? 'Long sides get a clip on each side of the join.' : 'No joins needed.'], { color: BRAND.primary, size: 15 });
+    table(ctx, L.l, L.t + ph + L.gap, L.w, [{ h: 'Side (measure from)', w: 1.1 }, { h: 'Clips', w: 0.5 }, { h: 'Clip marks, measured from the first corner', w: 7 }], rows, { size: 16, padY: 8, padX: 24, headSize: 13 });
+    noteCard(ctx, rx, L.t, rw, 'Clip marks', [`First clip ${frac(J.clipEndIn)} from each end of every piece of channel, then evenly spaced, never more than ${frac(J.clipSpacingIn)} apart.`, C.joins ? 'Long sides get a clip on each side of the join.' : 'No joins needed.'], { size: 16, h: ph });
   }
 }
 
@@ -5184,19 +5204,23 @@ function drawCornerTop(ctx, cx, cy, route, o = {}) {
 }
 
 function drawProfileCuts(ctx, step) {
-  const J = JOB, C = jobCalc();
+  const J = JOB, C = jobCalc(), L = GL, lw = 940, rx = L.l + lw + L.gap, rw = L.r - rx, cardH = 290;
   const rows = C.chan.map((c) => [{ t: `${c.id[0]} → ${c.id[1]}`, bold: true }, `${frac(c.s.len)}`, { t: frac(c.L), bold: true }, c.parts.length > 1 ? c.parts.map((p) => frac(p)).join(' + ') : '1 piece', { t: c.ends, color: P.muted }]);
-  table(ctx, 60, 160, 940, [{ h: 'Side', w: 0.8 }, { h: 'Measured', w: 1 }, { h: 'Cut length', w: 1.1 }, { h: 'Pieces', w: 1.5 }, { h: 'Ends', w: 2.2 }], rows, { size: 16, padY: 9, headSize: 13 });
-  card(ctx, 1030, 160, 510, 330);
-  txt(ctx, `Corners: ${C.route.name}`, 1054, 198, { size: 19, weight: 700, maxW: 470 });
-  wrap(ctx, C.route.cut + '.', 1054, 232, 260, { size: 15, color: P.muted });
-  drawCornerTop(ctx, 1370, 300, J.cornerRoute, { L: 135 });
-  if (J.cornerRoute !== 'gap' && J.cornerRoute !== 'butt') wrap(ctx, 'Lens: miter it the same way.', 1054, 440, 260, { size: 15, color: P.muted });
+  const th = table(ctx, L.l, L.t, lw, [{ h: 'Side', w: 0.8 }, { h: 'Measured', w: 1 }, { h: 'Cut length', w: 1.1 }, { h: 'Pieces', w: 1.5 }, { h: 'Ends', w: 2.2 }], rows, { size: 16, padY: 9, padX: 24, headSize: 13 });
+  card(ctx, rx, L.t, rw, cardH);
+  const ct = cardHead(ctx, rx, L.t, rw, `Corners: ${C.route.name}`);
+  wrap(ctx, C.route.cut + '.', rx + L.pad, ct + 20, 250, { size: 15, color: P.muted });
+  drawCornerTop(ctx, rx + rw - L.pad - 135, L.t + 120, J.cornerRoute, { L: 135 });
+  if (J.cornerRoute !== 'gap' && J.cornerRoute !== 'butt') wrap(ctx, 'Lens: miter it the same way.', rx + L.pad, L.t + cardH - 28, 250, { size: 15, color: P.muted });
+  const tipLines = ['Clamp the channel and cut with a fine-tooth blade. Let the blade do the work.', 'File every cut edge smooth. Burrs cut tape and wire insulation.', 'Cut the lens to the same length as its channel piece.', 'Dry-fit every piece in its clips before the tape goes in.'];
+  const tipY = L.t + cardH + L.gap, tipH = noteH(ctx, rw, tipLines, 16);
   if (step >= 2) {
-    const x0 = 60, y0 = 420, W = 900, sc = W / J.profileStickIn;
-    txt(ctx, `Cutting from ${C.sticks.length} sticks of ${frac(J.profileStickIn)}`, x0, y0, { size: 19, weight: 700 });
+    const sy = L.t + th + L.gap, n = C.sticks.length, pitch = 54;
+    const sh = Math.max(60 + (n - 1) * pitch + 34 + 24 + (C.joins ? 34 : 0), step >= 3 ? tipY + tipH - sy : 0);
+    card(ctx, L.l, sy, lw, sh);
+    const y0 = cardHead(ctx, L.l, sy, lw, `Cutting from ${n} sticks of ${frac(J.profileStickIn)}`) + 4, x0 = L.l + L.pad, W = lw - L.pad * 2 - 70, sc = W / J.profileStickIn;
     C.sticks.forEach((b, i) => {
-      const y = y0 + 26 + i * 54; let x = x0;
+      const y = y0 + i * pitch; let x = x0;
       roundRect(ctx, x0, y, W, 34, 5); ctx.fillStyle = P.soft; ctx.fill();
       b.items.forEach((it) => {
         const w = it.cut * sc; roundRect(ctx, x, y, w, 34, 5); ctx.fillStyle = '#d3d8de'; ctx.fill(); ctx.strokeStyle = '#646c76'; ctx.lineWidth = 1.2; ctx.stroke();
@@ -5206,27 +5230,29 @@ function drawProfileCuts(ctx, step) {
       if (x < x0 + W - 4) { hatch(ctx, x, y, x0 + W - x, 34, P.faint); }
       txt(ctx, `Stick ${i + 1}`, x0 + W + 12, y + 22, { size: 14, color: P.muted });
     });
-    if (C.joins) txt(ctx, `${C.joins} join${C.joins > 1 ? 's' : ''} on the long sides: use a joiner and put a clip on each side of it.`, x0, y0 + 40 + C.sticks.length * 54, { size: 15, color: P.muted });
+    if (C.joins) txt(ctx, `${C.joins} join${C.joins > 1 ? 's' : ''} on the long sides: use a joiner and put a clip on each side of it.`, x0, y0 + (n - 1) * pitch + 34 + 30, { size: 15, color: P.muted });
   }
-  if (step >= 3) noteCard(ctx, 1030, 510, 510, 'Cutting tips', ['Clamp the channel and cut with a fine-tooth blade. Let the blade do the work.', 'File every cut edge smooth. Burrs cut tape and wire insulation.', 'Cut the lens to the same length as its channel piece.', 'Dry-fit every piece in its clips before the tape goes in.'], { color: BRAND.primary, size: 16 });
+  if (step >= 3) noteCard(ctx, rx, tipY, rw, 'Cutting tips', tipLines, { size: 16 });
 }
 
 function drawTapeCuts(ctx, step) {
-  const J = JOB, C = jobCalc();
+  const J = JOB, C = jobCalc(), L = GL, zh = 200;
   // zoom: three segments with a good and a bad cut
-  const zx = 60, zy = 200, sw = 200, th = 64;
-  card(ctx, 40, 160, 1500, 200, { shadow: false, fill: P.card });
-  drawTapeRun(ctx, zx + 20, zy, sw * 3, th, 3, { signs: true });
-  pill(ctx, 'Cut here', zx + 20 + sw, zy - 24, { bg: P.good, color: '#fff', size: 14, align: 'center', icon: 'check' }); line(ctx, [[zx + 20 + sw, zy - 12], [zx + 20 + sw, zy + th + 6]], { color: P.good, width: 3 });
-  pill(ctx, 'Not here', zx + 20 + sw * 2.5, zy - 24, { bg: P.bad, color: '#fff', size: 14, align: 'center', icon: 'x' }); line(ctx, [[zx + 20 + sw * 2.5, zy - 12], [zx + 20 + sw * 2.5, zy + th + 6]], { color: P.bad, width: 3, dash: [6, 4] });
-  dimH(ctx, zx + 20 + sw, zx + 20 + sw * 2, zy + th + 34, `${ivTxt()} cut interval`, { size: 14 });
-  let ty = 210;
-  ['Cut on the printed line, through the middle of the copper pads.', 'A cut between lines leaves that segment dark.', 'The lit length always snaps down to the last whole segment.'].forEach((t) => { ty += bullet(ctx, 760, ty, t, 760, { size: 17 }) + 10; });
+  const zx = L.l + 40, zy = L.t + 66, sw = 190, th = 64;
+  card(ctx, L.l, L.t, L.w, zh);
+  drawTapeRun(ctx, zx, zy, sw * 3, th, 3, { signs: true });
+  pill(ctx, 'Cut here', zx + sw, zy - 26, { bg: P.good, color: '#fff', size: 14, align: 'center', icon: 'check' }); line(ctx, [[zx + sw, zy - 12], [zx + sw, zy + th + 6]], { color: P.good, width: 3 });
+  pill(ctx, 'Not here', zx + sw * 2.5, zy - 26, { bg: P.bad, color: '#fff', size: 14, align: 'center', icon: 'x' }); line(ctx, [[zx + sw * 2.5, zy - 12], [zx + sw * 2.5, zy + th + 6]], { color: P.bad, width: 3, dash: [6, 4] });
+  dimH(ctx, zx + sw, zx + sw * 2, zy + th + 36, `${ivTxt()} cut interval`, { size: 14 });
+  let ty = L.t + 72;
+  ['Cut on the printed line, through the middle of the copper pads.', 'A cut between lines leaves that segment dark.', 'The lit length always snaps down to the last whole segment.'].forEach((t) => { ty += bullet(ctx, 760, ty, t, L.r - L.pad - 760, { size: 17 }) + 14; });
   if (step < 2) return;
-  const x0 = 140, W = 1000, sc = W / Math.max(J.shortIn, J.longIn), y0 = 420;
+  const py = L.t + zh + L.gap, ph = 400;
+  card(ctx, L.l, py, L.w, ph);
+  const x0 = 170, W = 960, sc = W / Math.max(J.shortIn, J.longIn), y0 = py + 28;
   C.strips.forEach((st) => st.pieces.forEach((pc, k) => {
-    const i = (st.n - 1) * 2 + k, y = y0 + i * 100, len = pc.side.len * sc;
-    pill(ctx, pc.id, 80, y + 18, { bg: st.color, color: '#fff', size: 16, align: 'center' });
+    const i = (st.n - 1) * 2 + k, y = y0 + i * 84, len = pc.side.len * sc;
+    pill(ctx, pc.id, L.l + L.pad, y + 18, { bg: st.color, color: '#fff', size: 16 });
     roundRect(ctx, x0, y, len, 36, 5); ctx.fillStyle = P.soft; ctx.fill(); ctx.strokeStyle = P.line; ctx.lineWidth = 1; ctx.stroke();
     const tx = x0 + pc.startIn * sc;
     hatch(ctx, x0, y, pc.startIn * sc, 36, P.faint); hatch(ctx, tx + pc.tapeIn * sc, y, pc.darkEnd * sc, 36, P.faint);
@@ -5236,29 +5262,35 @@ function drawTapeCuts(ctx, step) {
     txt(ctx, `side ${frac(pc.side.len)} · starts ${frac(pc.startIn)} from ${pc.side.id[0]}`, x0 + len + 46, y + 38, { size: 14, color: P.muted });
     if (step >= 3) { arrow(ctx, [[tx - 4, y + 56], [tx + 70, y + 56]], st.color, { width: 3, head: 10 }); txt(ctx, `power in (from ${pc.side.id[0]})`, tx + 80, y + 61, { size: 14, color: textTone(st.color), weight: 600 }); }
   }));
-  if (step >= 3) txt(ctx, 'Label each piece on its backing (1a, 1b, 2a, 2b) and arrow the power-in end before you peel anything.', 80, 838, { size: 17, weight: 600 });
+  if (step >= 3) txt(ctx, 'Label each piece on its backing (1a, 1b, 2a, 2b) and arrow the power-in end before you peel anything.', L.l + L.pad, py + ph - 28, { size: 17, weight: 600 });
 }
 
 function drawCornerMap(ctx, step) {
-  const J = JOB, C = jobCalc(), m = planMap(470, 300, 660, 300);
+  const J = JOB, C = jobCalc(), L = GL, cw = 340, px = L.l + cw + L.gap, pw = L.w - 2 * (cw + L.gap);
+  card(ctx, px, L.t, pw, L.b - L.t);
+  const m = planMap(px + 70, L.t + 90, pw - 140, L.b - L.t - 200);
   drawPlan(ctx, m, { calc: C, feed: true, roomLabel: false });
+  const lx = L.l, rx = L.r - cw;
   const cards = [
-    { k: 'A', x: 60, y: 560, title: 'Corner A · power in', lines: [`Lead from the ${J.volts} V supply arrives here.`, J.splitAt === 'corner' ? 'Split it with two lever connectors: red to + on both strips, black to −.' : 'Two leads, one to each strip: red to +, black to −.', 'Both strips start here.'], color: BRAND.accent },
-    { k: 'B', x: 60, y: 160, title: 'Corner B · Strip 1 jumper', lines: ['1a ends, 1b begins.', J.cornerRoute === 'connector' ? 'L connector joins the two tape ends.' : `Jumper ${frac(J.jumperIn)}: + to +, − to −.`], color: C.strips[0].color },
-    { k: 'D', x: 1180, y: 560, title: 'Corner D · Strip 2 jumper', lines: ['2a ends, 2b begins.', J.cornerRoute === 'connector' ? 'L connector joins the two tape ends.' : `Jumper ${frac(J.jumperIn)}: + to +, − to −.`], color: C.strips[1].color },
-    { k: 'C', x: 1180, y: 160, title: 'Corner C · both strips end', lines: ['Cap both ends.', 'Do not connect Strip 1 to Strip 2 here.'], color: P.ink },
+    { k: 'A', x: lx, bottom: true, title: 'Corner A · power in', lines: [`Lead from the ${J.volts} V supply arrives here.`, J.splitAt === 'corner' ? 'Split it with two lever connectors: red to + on both strips, black to −.' : 'Two leads, one to each strip: red to +, black to −.', 'Both strips start here.'], color: BRAND.accent },
+    { k: 'B', x: lx, title: 'Corner B · Strip 1 jumper', lines: ['1a ends, 1b begins.', J.cornerRoute === 'connector' ? 'L connector joins the two tape ends.' : `Jumper ${frac(J.jumperIn)}: + to +, − to −.`], color: C.strips[0].color },
+    { k: 'D', x: rx, bottom: true, title: 'Corner D · Strip 2 jumper', lines: ['2a ends, 2b begins.', J.cornerRoute === 'connector' ? 'L connector joins the two tape ends.' : `Jumper ${frac(J.jumperIn)}: + to +, − to −.`], color: C.strips[1].color },
+    { k: 'C', x: rx, title: 'Corner C · both strips end', lines: ['Cap both ends.', 'Do not connect Strip 1 to Strip 2 here.'], color: P.ink },
   ];
+  const H = Math.max(...cards.map((c) => noteH(ctx, cw, c.lines, 16)));
   cards.forEach((c, i) => {
-    if (step <= i) { ghost(ctx, c.x, c.y, 360, 240); return; }
-    noteCard(ctx, c.x, c.y, 360, c.title, c.lines, { color: c.color, size: 16, h: 240 });
-    const target = m[c.k], fromX = c.x < 400 ? c.x + 360 : c.x, fromY = c.y + 120;
+    const y = c.bottom ? L.b - H : L.t;
+    if (step <= i) { ghost(ctx, c.x, y, cw, H); return; }
+    noteCard(ctx, c.x, y, cw, c.title, c.lines, { color: c.color, size: 16, h: H });
+    const target = m[c.k], fromX = c.x < 400 ? c.x + cw : c.x, fromY = y + H / 2;
     line(ctx, [[fromX, fromY], target], { color: c.color, width: 1.6, dash: [6, 5] });
     ctx.beginPath(); ctx.arc(target[0], target[1], 26, 0, Math.PI * 2); ctx.strokeStyle = c.color; ctx.lineWidth = 3; ctx.stroke();
   });
 }
 
 function drawJumper(ctx, step) {
-  const J = JOB, s = 150, th = 0.394 * s, segW = J.cutIntervalIn * s, y = 330, lx = 90, rx = 1510 - 2 * segW, gapL = lx + 2 * segW, lit = step >= 4;
+  const J = JOB, L = GL, s = 150, th = 0.394 * s, segW = J.cutIntervalIn * s, y = 340, lx = L.l + 40, rx = L.r - 40 - 2 * segW, gapL = lx + 2 * segW, lit = step >= 4, dh = 450;
+  card(ctx, L.l, L.t, L.w, dh);
   drawTapeRun(ctx, lx, y, 2 * segW, th, 2, { signs: true, lit });
   drawTapeRun(ctx, rx, y, 2 * segW, th, 2, { signs: true, lit });
   pill(ctx, '1a (end)', lx + segW, y - 46, { bg: ZONE_COLORS[0], color: '#fff', size: 15, align: 'center' });
@@ -5276,9 +5308,9 @@ function drawJumper(ctx, step) {
     ctx.strokeStyle = color; ctx.lineWidth = 7; ctx.stroke();
   };
   if (step === 1) {
-    [['#c83c3c', 230], ['#2a2e35', 262]].forEach(([c, yy]) => { line(ctx, [[gapL + 40, yy + 260], [rx - 40, yy + 260]], { color: c, width: 7 }); [gapL + 40, rx - 40].forEach((x, k) => line(ctx, [[x, yy + 260], [x + (k ? 22 : -22), yy + 260]], { color: '#c98a3e', width: 3 })); });
-    dimH(ctx, gapL + 40, rx - 40, 450, `${frac(J.jumperIn)} + loop`, { size: 14 });
-    pill(ctx, 'strip 1/8″, tin', gapL + 18, 560, { bg: P.card, stroke: P.line, size: 14, align: 'center' });
+    [['#c83c3c', 500], ['#2a2e35', 532]].forEach(([c, yy]) => { line(ctx, [[gapL + 40, yy], [rx - 40, yy]], { color: c, width: 7 }); [gapL + 40, rx - 40].forEach((x, k) => line(ctx, [[x, yy], [x + (k ? 22 : -22), yy]], { color: '#c98a3e', width: 3 })); });
+    dimH(ctx, gapL + 40, rx - 40, 462, `${frac(J.jumperIn)} + loop`, { size: 14 });
+    pill(ctx, 'strip 1/8″, tin', gapL + 18, 572, { bg: P.card, stroke: P.line, size: 14, align: 'center' });
   }
   if (step >= 2) { wire(lp.plus, rp.plus, '#c83c3c', -40, step >= 3); wire(lp.minus, rp.minus, '#2a2e35', 40, step >= 3); }
   if (step >= 2) { drawCheck(ctx, lp.plus[0], lp.plus[1] - 36, 13, true); txt(ctx, 'red → +', lp.plus[0] - 22, lp.plus[1] - 32, { size: 15, weight: 700, align: 'right', color: '#c83c3c' }); txt(ctx, 'black → −', lp.minus[0] - 22, lp.minus[1] + 40, { size: 15, weight: 700, align: 'right' }); }
@@ -5287,17 +5319,22 @@ function drawJumper(ctx, step) {
     [lp.plus, lp.minus, rp.plus, rp.minus].forEach(([x, yy]) => { roundRect(ctx, x - 12, yy - 9, 24, 18, 5); ctx.fillStyle = 'rgba(30,34,40,0.45)'; ctx.fill(); });
     txt(ctx, 'service loop', (gapL + rx) / 2 + 70, y - 120, { size: 15, color: P.muted });
   }
-  const say = guideSay(currentVisual(), step);
-  card(ctx, 60, 620, 980, 200); badge(ctx, String(step), 100, 668, 20);
-  wrap(ctx, say, 136, 676, 880, { size: 20 });
-  noteCard(ctx, 1070, 620, 470, 'No soldering?', ['Use tape-to-wire connectors: open the lid, slide the tape in so the pads sit under the contacts, close it.', 'Check + and − on the connector match the tape.'], { color: P.faint, size: 15, h: 200 });
+  const say = guideSay(currentVisual(), step), ry = L.t + dh + L.gap, rh = L.b - ry, nx = L.l + 980 + L.gap;
+  card(ctx, L.l, ry, 980, rh); badge(ctx, String(step), L.l + L.pad + 20, ry + L.pad + 20, 20);
+  wrap(ctx, say, L.l + L.pad + 56, ry + L.pad + 26, 980 - L.pad * 2 - 56, { size: 20 });
+  noteCard(ctx, nx, ry, L.r - nx, 'No soldering?', ['Use tape-to-wire connectors: open the lid, slide the tape in so the pads sit under the contacts, close it.', 'Check + and − on the connector match the tape.'], { size: 15, h: rh });
 }
 
 function drawWiringOneLine(ctx, step) {
-  const J = JOB, C = jobCalc(), cy = 470;
+  card(ctx, GL.l, GL.t, GL.w, GL.b - GL.t);
+  ctx.save(); ctx.translate(GL.pad, 0); wiringDiagram(ctx, step); ctx.restore();
+  if (step >= 4) txt(ctx, 'Strips are in parallel: + to + and − to −. Never connect the ends at C.', GL.l + GL.pad, GL.b - 28, { size: 18, weight: 600 });
+}
+function wiringDiagram(ctx, step) {
+  const J = JOB, C = jobCalc(), cy = 480;
   const red = '#c83c3c', blk = '#2a2e35';   // physical: wire insulation
-  fbox(ctx, 60, cy - 50, 170, 100, 'Breaker', '120 V', { bar: P.faint });
-  fbox(ctx, 290, cy - 50, 190, 100, 'Switch / dimmer', '[confirm match]', { bar: P.faint });
+  fbox(ctx, 60, cy - 50, 170, 100, 'Breaker', '120 V');
+  fbox(ctx, 290, cy - 50, 190, 100, 'Switch / dimmer', '[confirm match]');
   line(ctx, [[230, cy], [290, cy]], { color: blk, width: 4 }); line(ctx, [[480, cy], [540, cy]], { color: blk, width: 4 });
   drawPSU(ctx, 540, cy - 45, 200, 90, `${J.volts} V supply`, `${C.supply ?? '—'} W Class 2`);
   pill(ctx, '120 V · licensed electrician', 300, cy - 90, { bg: P.soft, size: 14 });
@@ -5310,7 +5347,7 @@ function drawWiringOneLine(ctx, step) {
   if (step < 3) return;
   card(ctx, sx - 22, cy - 46, 44, 92, { fill: DS.accent[500], stroke: DS.accent[800] }); txt(ctx, 'A', sx, cy + 6, { size: 18, weight: 700, align: 'center', baseline: 'middle' });
   txt(ctx, 'lever connectors', sx, cy + 72, { size: 13, color: P.muted, align: 'center' });
-  const rows = [[C.strips[0], cy - 170], [C.strips[1], cy + 170]], bx = 960, sc = 2.75;
+  const rows = [[C.strips[0], cy - 170], [C.strips[1], cy + 170]], bx = 940, sc = 2.5;
   rows.forEach(([st, y]) => {
     pair([[sx + 22, cy], [sx + 40, cy], [sx + 40, y], [bx, y]], 6);
     pill(ctx, `${st.name} · ${fmt(st.W, 0)} W · ${fmt(st.I, 2)} A`, bx + 4, y - 56, { bg: st.color, color: '#fff', size: 14 });
@@ -5327,7 +5364,6 @@ function drawWiringOneLine(ctx, step) {
     });
     ctx.fillStyle = P.ink; ctx.fillRect(x + 2, y - 14, 6, 28); txt(ctx, 'cap · C', x + 14, y + 5, { size: 13, color: P.muted });
   });
-  txt(ctx, 'Strips are in parallel: + to + and − to −. Never connect the ends at C.', 60, 820, { size: 18, weight: 600 });
 }
 
 function drawAssembly(ctx, step) {
@@ -5338,21 +5374,22 @@ function drawAssembly(ctx, step) {
     ['Lens', 'Snap it in along the run.', { tape: true, lens: true, lensLift: 34 }],
     ['Into the clips', 'Press down until it clicks. Fit end caps.', { tape: true, lens: true, clip: true }],
   ];
-  const w = 282, s = 300;
+  const L = GL, w = (L.w - 4 * L.gap) / 5, s = 300, h = 520;
   stages.forEach(([t, sub, o], i) => {
-    const x = 60 + i * 298, y = 200;
-    if (step <= i) { ghost(ctx, x, y, w, 560); badge(ctx, String(i + 1), x + 34, y + 36, 18, P.faint); return; }
-    card(ctx, x, y, w, 560); badge(ctx, String(i + 1), x + 34, y + 36, 18);
-    txt(ctx, t, x + 62, y + 43, { size: 21, weight: 700 });
-    const ox = x + w / 2, oy = y + 330;
-    drawXsec(ctx, ox, oy - (o.clip ? 0 : 0), s, o);
+    const x = L.l + i * (w + L.gap), y = L.t;
+    if (step <= i) { ghost(ctx, x, y, w, h); badge(ctx, String(i + 1), x + L.pad + 16, y + 30, 16, P.faint); return; }
+    card(ctx, x, y, w, h); badge(ctx, String(i + 1), x + L.pad + 16, y + 30, 16);
+    txt(ctx, t, x + L.pad + 40, y + 36, { size: 19, weight: 700, maxW: w - L.pad * 2 - 40 });
+    line(ctx, [[x + L.pad, y + 52], [x + w - L.pad, y + 52]], { color: P.line, width: 1 });
+    const ox = x + w / 2, oy = y + 300;
+    drawXsec(ctx, ox, oy, s, o);
     if (i === 0) { arrow(ctx, [[ox - 80, oy - 30], [ox + 60, oy - 30]], P.brand, { width: 3 }); }
     if (i === 1 || i === 3) arrow(ctx, [[ox, oy - 190], [ox, oy - 130]], P.brand, { width: 3 });
     if (i === 2) pill(ctx, `${JOB.volts} V`, ox, oy - 170, { bg: P.good, color: '#fff', size: 15, align: 'center' });
     if (i === 4) { arrow(ctx, [[ox - 120, oy - 150], [ox - 120, oy - 70]], P.brand, { width: 3 }); pill(ctx, 'click', ox + 100, oy - 120, { bg: P.soft, size: 14, align: 'center' }); }
-    wrap(ctx, sub, x + 22, y + 470, w - 44, { size: 17, color: P.muted });
+    wrap(ctx, sub, x + L.pad, y + h - 84, w - L.pad * 2, { size: 17, color: P.muted });
   });
-  if (step >= 2) txt(ctx, 'Don’t bend the tape sharply or press on the LEDs. Keep the backing on until each section is in place.', 60, 820, { size: 17, weight: 600 });
+  if (step >= 2) txt(ctx, 'Don’t bend the tape sharply or press on the LEDs. Keep the backing on until each section is in place.', L.l, L.t + h + 40, { size: 17, weight: 600 });
 }
 
 function drawTesting(ctx, step) {
@@ -5363,16 +5400,17 @@ function drawTesting(ctx, step) {
     ['Voltage at the far ends', 'Corner C, both strips', 'Within about 1 V of corner A'],
     ['Dimming', 'Full → low → off', 'Smooth, no flicker, no dead spots'],
   ];
-  table(ctx, 60, 170, 1100, [{ h: '', w: 0.35 }, { h: 'Check', w: 2 }, { h: 'Where / how', w: 2.2 }, { h: 'You should see', w: 2.6 }],
-    rows.map((r, i) => [{ check: i < step ? true : null }, { t: r[0], bold: true }, { t: r[1], color: P.muted }, r[2]]), { size: 18, padY: 16, reveal: step });
-  const x = 1200, y = 190;
-  card(ctx, x, y, 340, 420, { fill: DS.primary[800], stroke: DS.primary[900] });
-  roundRect(ctx, x + 40, y + 40, 260, 110, DS.radius.sm); ctx.fillStyle = DS.secondary[100]; ctx.fill();
+  const L = GL, tw = 1100, x = L.l + tw + L.gap, mw = L.r - x;
+  const H = table(ctx, L.l, L.t, tw, [{ h: '', w: 0.35 }, { h: 'Check', w: 2 }, { h: 'Where / how', w: 2.2 }, { h: 'You should see', w: 2.6 }],
+    rows.map((r, i) => [{ check: i < step ? true : null }, { t: r[0], bold: true }, { t: r[1], color: P.muted }, r[2]]), { size: 20, padY: 26, padX: 24, reveal: step, bar: false });
+  const y = L.t;
+  card(ctx, x, y, mw, H, { fill: DS.primary[800], stroke: DS.primary[900] });
+  roundRect(ctx, x + 28, y + 28, mw - 56, 110, DS.radius.sm); ctx.fillStyle = DS.secondary[100]; ctx.fill();
   const v = step >= 3 ? J.volts - Math.min(1, C.drop.v + 0.4) : J.volts + 0.1;
-  txt(ctx, `${v.toFixed(1)} V`, x + 170, y + 112, { size: 52, weight: 600, color: DS.primary[600], align: 'center' });
-  txt(ctx, `DC volts · at corner ${step >= 3 ? 'C' : 'A'}`, x + 170, y + 200, { size: 18, color: DS.primary[200], align: 'center' });
-  [[x + 110, '#c83c3c', 'red probe → +'], [x + 230, DS.primary[900], 'black → −']].forEach(([px, c, l]) => { ctx.beginPath(); ctx.arc(px, y + 330, 18, 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill(); txt(ctx, l, px, y + 380, { size: 14, color: DS.primary[200], align: 'center' }); });
-  if (step >= 4) txt(ctx, 'All four pass? Close up: lenses, end caps, then any ceiling access.', 60, 760, { size: 19, weight: 600 });
+  txt(ctx, `${v.toFixed(1)} V`, x + mw / 2, y + 100, { size: 52, weight: 600, color: DS.primary[600], align: 'center' });
+  txt(ctx, `DC volts · at corner ${step >= 3 ? 'C' : 'A'}`, x + mw / 2, y + 178, { size: 18, color: DS.primary[200], align: 'center' });
+  [[x + mw / 2 - 60, '#c83c3c', 'red probe → +'], [x + mw / 2 + 60, DS.primary[900], 'black → −']].forEach(([px, c, l]) => { ctx.beginPath(); ctx.arc(px, y + H - 110, 18, 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill(); txt(ctx, l, px, y + H - 60, { size: 14, color: DS.primary[200], align: 'center' }); });
+  if (step >= 4) txt(ctx, 'All four pass? Close up: lenses, end caps, then any ceiling access.', L.l, L.t + H + 48, { size: 19, weight: 600 });
 }
 
 const TROUBLE = [
@@ -5384,7 +5422,7 @@ const TROUBLE = [
   ['Nothing lights', 'No 120 V to the supply, or its output is off', 'Check the breaker and switch; measure the supply output'],
 ];
 function drawTroubleshoot(ctx, step) {
-  table(ctx, 60, 165, 1480, [{ h: 'Symptom', w: 2 }, { h: 'Likely cause', w: 2.6 }, { h: 'Fix', w: 2.8 }], TROUBLE.map((r) => [{ t: r[0], bold: true }, { t: r[1], color: P.muted }, r[2]]), { size: 18, padY: 14, reveal: step });
+  table(ctx, GL.l, GL.t, GL.w, [{ h: 'Symptom', w: 2 }, { h: 'Likely cause', w: 2.6 }, { h: 'Fix', w: 2.8 }], TROUBLE.map((r) => [{ t: r[0], bold: true }, { t: r[1], color: P.muted }, r[2]]), { size: 18, padY: 14, padX: 24, reveal: step, bar: false });
 }
 
 /* ---------- 3D helpers (CAD outlines, extruded) ---------- */
@@ -5477,7 +5515,7 @@ function buildCoveScene(o = {}) {
   // channels + lenses, one run per piece
   const route = J.cornerRoute, runs = {};
   C.strips.forEach((st) => {
-    const lm = new THREE.MeshStandardMaterial({ color: '#f7f8fa', roughness: 0.5, transparent: true, opacity: 0.94 });
+    const lm = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.5, transparent: true, opacity: 0.94 });
     if (lit) { lm.emissive = cctColor(); lm.emissiveIntensity = 0.95 * I; } else if (o.tint) lm.color = new THREE.Color(st.color).lerp(WHITE, 0.2);
     st.pieces.forEach((pc) => {
       const cc = C.chan.find((c) => c.id === pc.side.id), a = v3(corner[pc.side.id[0]]), b = v3(corner[pc.side.id[1]]), dir = b.clone().sub(a).normalize();
@@ -5963,12 +6001,35 @@ function guidePanelHtml(sec, chk) {
       <div class="row"><span style="width:118px">Pace</span><select id="guidePace"><option value="0.75">Slow</option><option value="1" selected>Normal</option><option value="1.35">Fast</option></select></div>
       ${chk('id="guideVoice"', 'Voice-over while playing (not in the video)')}
       ${chk('id="guideOrbit" checked', 'Slow camera move on 3D steps')}
+      <button class="btn guideApply" style="width:100%;margin-top:10px"></button>
       ${rows}
-      <p class="note">Captions are the <code>say</code> lines in section 21. “Record video” plays the whole guide into one MP4 (or WebM). “Printable guide” opens a self-contained page to print or save as PDF.</p>`, true, 'only-train');
+      <button class="btn guideApply" style="width:100%;margin-top:10px"></button>
+      <p class="note">Edit the fields, then press <b>Update guide</b> (or Enter) to apply them. Your entries stay in the fields until you do. Captions are the <code>say</code> lines in section 21. “Record video” plays the whole guide into one MP4 (or WebM). “Printable guide” opens a self-contained page to print or save as PDF.</p>`, true, 'only-train');
 }
+/** Keys of job fields edited but not yet applied; syncJobInputs leaves these fields alone. */
+const jobDirty = new Set();
 function syncJobInputs() {
   const active = document.activeElement;
-  document.querySelectorAll('[data-job]').forEach((el) => { if (el === active) return; const str = String(JOB[el.dataset.job]); if (el.value !== str) el.value = str; });
+  document.querySelectorAll('[data-job]').forEach((el) => { if (el === active || jobDirty.has(el.dataset.job)) return; const str = String(JOB[el.dataset.job]); if (el.value !== str) el.value = str; });
+}
+function refreshApplyButtons() {
+  const n = jobDirty.size;
+  document.querySelectorAll('.guideApply').forEach((b) => { b.classList.toggle('primary', n > 0); b.innerHTML = `${icon('refresh')}${n ? `Update guide · ${n} change${n > 1 ? 's' : ''}` : 'Update guide'}`; });
+}
+/** Apply every edited field to JOB. Fields that can't be applied (empty, zero, not a number) stay as typed and are flagged. */
+function applyJobEdits() {
+  const bad = [];
+  document.querySelectorAll('[data-job]').forEach((el) => {
+    const k = el.dataset.job; if (!jobDirty.has(k)) return;
+    let v = el.value;
+    if (typeof JOB[k] === 'number') {
+      v = Number(v);
+      if (el.value.trim() === '' || !Number.isFinite(v) || v <= 0) { el.setAttribute('aria-invalid', 'true'); bad.push(el.closest('label')?.firstElementChild?.textContent || k); return; }
+    }
+    JOB[k] = v; el.removeAttribute('aria-invalid'); jobDirty.delete(k);
+  });
+  afterJobChange(); refreshApplyButtons();
+  toast(bad.length ? `Not applied, enter a number above 0: ${bad.join(', ')}` : 'Guide updated');
 }
 function afterJobChange() { syncUI(); requestRender(); }
 function jobLink() { return `${location.href.split('#')[0]}#guide&job=${encodeURIComponent(JSON.stringify(JOB))}`; }
@@ -5992,25 +6053,29 @@ function initGuide() {
   const panel = $('#panel');
   panel.addEventListener('input', (e) => {
     const t = e.target, k = t.dataset.job; if (!k || t.tagName === 'SELECT') return;
-    if (typeof JOB[k] === 'number') { const v = Number(t.value); if (!Number.isFinite(v) || v <= 0) return; JOB[k] = v; } else JOB[k] = t.value;
-    afterJobChange();
+    jobDirty.add(k); t.removeAttribute('aria-invalid'); refreshApplyButtons();
+  });
+  panel.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.dataset && e.target.dataset.job && e.target.tagName === 'INPUT') { e.preventDefault(); applyJobEdits(); }
   });
   panel.addEventListener('change', (e) => {
     const t = e.target;
-    if (t.dataset.job && t.tagName === 'SELECT') { JOB[t.dataset.job] = t.value; afterJobChange(); return; }
+    if (t.dataset.job && t.tagName === 'SELECT') { jobDirty.add(t.dataset.job); refreshApplyButtons(); return; }
     if (t.id === 'guidePace') state.guidePace = Number(t.value);
     else if (t.id === 'guideVoice') state.guideVoice = t.checked;
     else if (t.id === 'guideOrbit') state.guideOrbit = t.checked;
   });
   panel.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
+    if (b.classList.contains('guideApply')) { applyJobEdits(); return; }
+    if (jobDirty.size && /^guide(Play|Record|Print|Link)$/.test(b.id)) applyJobEdits();   // so playback, video and print use what's in the fields
     if (b.id === 'guidePlay') playGuide();
     else if (b.id === 'guideRecord') playGuide({ record: true });
     else if (b.id === 'guidePrint') printableGuide();
     else if (b.id === 'guideLink') copyJobLink();
   });
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && guide.playing) { guide.stop = true; if (window.speechSynthesis) speechSynthesis.cancel(); } });
-  syncJobInputs(); setGuideButtons();
+  syncJobInputs(); setGuideButtons(); refreshApplyButtons();
 }
 
 /* =====================================================================

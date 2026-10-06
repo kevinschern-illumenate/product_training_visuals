@@ -204,7 +204,10 @@ walkthrough for one job, written for an installer who is new to LED tape. It shi
 - **Copy job link** copies a URL with the job encoded (`#guide&job=…`). Opening that link goes
   straight into the guide with those settings.
 - The job inputs (sides, cut interval, W/ft, clip spacing, corner route, feed route, supply location,
-  and so on) recalculate everything: tape pieces snapped to the cut marks, clip marks, the cut list,
+  and so on) are staged: edit them freely, then press **Update guide** (or Enter in a field) to apply
+  them. Your entries stay in the fields until you do, and the button shows how many changes are
+  waiting. Play, Record, Printable guide and Copy job link apply pending changes first. Applying
+  recalculates everything: tape pieces snapped to the cut marks, clip marks, the cut list,
   the parts list, the supply size and the lead gauge.
 
 **Editing**: job values are in `JOB` (section 1d). The CAD geometry is in `CAD_SH01`, flattened from
